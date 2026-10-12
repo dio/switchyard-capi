@@ -2,4 +2,4 @@ module github.com/dio/switchyard-capi/go
 
 go 1.22
 
-require github.com/dio/libsygo v0.0.0-20261012204538-4d9faefb0f39
+require github.com/dio/libsygo v0.0.0-20261012100734-c1d211ad4097
