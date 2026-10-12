@@ -1,9 +1,10 @@
 name: drift
 
-# Scheduled early-warning: has upstream Switchyard behaviour moved since the pin?
-# Re-pins to main, re-runs the oracle against the recorded golden, and reports
-# the behavioural diff. This is the input to deciding whether owning routing
-# outside Rust stays cheap.
+# Scheduled early-warning. Two questions, both reported:
+#   A. has upstream Switchyard behaviour moved since the pin?
+#   B. has our own port drifted from upstream?
+# B is the actionable one — it names the turns libsygo would now route
+# differently — and measuring it needs the Go toolchain, since the port is Go.
 on:
   schedule:
     - cron: '0 6 * * 1' # Mondays, 06:00 UTC
@@ -18,7 +19,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rust-lang/setup-rust-toolchain@v1
-      - name: Check upstream drift
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - name: Check upstream and port drift
         id: drift
         run: |
           chmod +x scripts/drift-check.sh

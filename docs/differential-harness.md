@@ -429,10 +429,26 @@ Acceptance for swapping in the Go implementation behind the same profile API:
 4. No diff in `selected_model_ids` ordering.
 5. `by_request_hash` fixtures hit for every case that calls out.
 
-Drift check: re-run `record` against a newer Switchyard pin on a branch. The
-resulting diff is the exact behavioural delta upstream introduced — which is the
-number that decides whether we keep owning routing in Go or go back to binding.
+### Drift check
 
-If `verify` is green and upstream's diff is small, cut over to Go and drop the
-Rust toolchain from CI. If upstream keeps moving the cascade, keep the binding
-and run the harness as an early-warning system.
+`scripts/drift-check.sh` re-pins to upstream main in a scratch checkout, records a
+golden at that revision, and answers two questions that are not the same question:
+
+| | Compared | Answers |
+|---|---|---|
+| **A** | oracle@latest vs golden@pinned | did upstream behaviour move? |
+| **B** | port@here vs golden@latest | did *our port* fall behind? |
+| **C** | golden@pinned vs golden@latest | which recorded turns moved, and how |
+
+A is the news. B is the actionable number: it names the turns libsygo would now
+route differently, which is the thing that decides whether owning routing outside
+Rust stays cheap. Reporting only A tells you upstream moved without telling you
+whether it matters here; reporting only B hides movement in families the port has
+not implemented yet — which is why the tier-1 filter on B is deliberate, and why C
+is reported unfiltered.
+
+A compile failure is reported as *cannot be evaluated*, distinct from behavioural
+drift: it means upstream changed API shape, so the harness and corpus must be
+updated before either question below it has an answer.
+
+The job runs weekly and is also the manual gate for taking a pin bump:

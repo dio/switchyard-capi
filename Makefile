@@ -59,8 +59,9 @@ live: build-go
 	$(BIN) --corpus testdata/corpus --tier 1 --decider live \
 	  --capture .bin/capture --out .bin/live.jsonl
 
-# Early-warning: has upstream behaviour moved since the pin? Re-pins to main,
-# re-runs the oracle against the recorded golden, and reports the diff.
+# Early-warning, scheduled weekly. Re-pins to upstream main and reports both
+# whether upstream behaviour moved and whether the port has fallen behind it.
+# The second is the actionable one: it names the turns libsygo now gets wrong.
 drift:
 	scripts/drift-check.sh drift-report.txt
 
