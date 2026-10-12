@@ -6,8 +6,8 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, bail, Context, Result};
 use futures::StreamExt;
-use serde_json::Value;
 use http::HeaderMap;
+use serde_json::Value;
 use switchyard_libsy::{Algorithm, LibsyError, RoutingOutcome, RuntimeModels, Step};
 use switchyard_protocol::{
     text_request, AggLlmResponse, Category, DecisionResponse, LlmRequest, LlmResponse, Metadata,
