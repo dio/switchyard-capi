@@ -10,6 +10,11 @@
 # newer revision could not be evaluated).
 #
 # Usage: scripts/drift-check.sh [report-file]
+#
+# Environment:
+#   UPSTREAM   git URL to compare against (default: the upstream repo)
+#   DRIFT_REV  evaluate this exact revision instead of upstream main. Useful for
+#              testing the job, or for evaluating a specific PR revision.
 set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -20,7 +25,11 @@ REPORT="${1:-drift-report.txt}"
 PIN_FILE="testdata/corpus/PIN"
 
 pinned="$(tr -d '[:space:]' < "$PIN_FILE")"
-latest="$(git ls-remote "$UPSTREAM" refs/heads/main | cut -f1)"
+if [ -n "${DRIFT_REV:-}" ]; then
+  latest="$DRIFT_REV"
+else
+  latest="$(git ls-remote "$UPSTREAM" refs/heads/main | cut -f1)"
+fi
 
 say() { echo "$*" | tee -a "$REPORT"; }
 
@@ -64,11 +73,24 @@ say "dependencies resolved."
 say ""
 say '```'
 
-cargo run -q -p libsy-conform -- --mode verify 2>&1 | tee -a "$REPORT"
-status=${PIPESTATUS[0]}
+set +e
+output="$(cargo run -q -p libsy-conform -- --mode verify 2>&1)"
+status=$?
+set -e
+printf '%s\n' "$output" >> "$REPORT"
 
 say '```'
 say ""
+
+# A compile failure is API movement, not behavioural drift: the harness targets
+# types and variants that no longer exist (or do not exist yet). Worth reporting
+# separately — it means the corpus and port must be updated first.
+if printf '%s' "$output" | grep -qE '^error(\[|:)'; then
+  say "REVISION CANNOT BE EVALUATED — it does not compile against this harness."
+  say "Upstream changed API shape (types or variants added, renamed, or removed),"
+  say "not merely behaviour. Update the harness before a behavioural diff is meaningful."
+  exit 1
+fi
 
 if [ "$status" -eq 0 ]; then
   say "no behavioural change: the corpus still matches at $latest"

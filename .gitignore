@@ -1,3 +1,4 @@
 /target
 .bin/
+drift-report.txt
 **/*.rs.bk

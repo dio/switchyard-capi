@@ -28,6 +28,21 @@ testdata/fixtures/        live decider captures, with provenance
 docs/                     the harness spec
 ```
 
+## Pin policy
+
+The pin is a **commit, not a release tag**. The tier-0/1 JEV path
+(`Step::CallDecision`, `CapabilityJudgeConfig::Decision`, `DecisionResponse`) does
+**not** exist in the released `v0.3.0` — it landed after that tag. Verified by
+evaluating `v0.3.0` through the drift job, which fails to compile against this
+harness (`unresolved import switchyard_libsy::DecisionJudgeConfig`, no
+`Step::CallDecision` variant, no `DecisionResponse`).
+
+So tracking a release would silently drop the entire decision-judge path. The
+scheduled drift job keeps that visible and distinguishes the two failure modes:
+
+- **revision cannot be evaluated** — upstream changed API shape; update the harness
+- **behavioural drift** — same API, different decisions; the diff is the answer
+
 ## Tier-0/1 port
 
 `go/` ports the decision core that owns nothing but the judge plumbing: the
