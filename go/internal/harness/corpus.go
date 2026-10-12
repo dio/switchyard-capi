@@ -94,6 +94,8 @@ func (t TurnSpec) Request() (libsygo.LlmRequest, error) {
 	switch t.WireFormat {
 	case "", "openai_chat":
 		return libsygo.DecodeOpenAIChat(t.RawRequest)
+	case "anthropic_messages":
+		return libsygo.DecodeAnthropicMessages(t.RawRequest)
 	default:
 		return libsygo.LlmRequest{}, fmt.Errorf("wire format %q is not ported", t.WireFormat)
 	}
