@@ -20,6 +20,10 @@ jobs:
         run: make fmt-check
       - name: clippy
         run: make clippy
+      - name: library tests
+        run: make go-test
+      - name: example tests (Envoy callout seam)
+        run: make examples-test
       # Re-runs the oracle against the corpus and diffs the recorded golden.
       # Green means the oracle is deterministic and upstream behaviour has not
       # moved for the pinned revision.

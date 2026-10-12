@@ -26,15 +26,21 @@ impl: build-go
 go-test:
 	cd go && go test ./...
 
+# The example lives in its own module so the library stays dependency-free.
+examples-test:
+	cd examples/envoy-callout && go test ./...
+
 fmt-check:
 	cargo fmt --all --check
 	@unformatted=$$(cd go && gofmt -l .); \
 	if [ -n "$$unformatted" ]; then echo "gofmt needed:"; echo "$$unformatted"; exit 1; fi
+	@unformatted=$$(cd examples/envoy-callout && gofmt -l .); \
+	if [ -n "$$unformatted" ]; then echo "gofmt needed (example):"; echo "$$unformatted"; exit 1; fi
 
 clippy:
 	cargo clippy --all-targets -- -D warnings
 
-test: fmt-check clippy go-test verify impl
+test: fmt-check clippy go-test examples-test verify impl
 
 # Manual: drives the real System One endpoint. Needs TYPESAFE_API_KEY.
 # Captures every reply so it can be pinned and replayed.
