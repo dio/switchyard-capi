@@ -34,3 +34,6 @@ jobs:
       # Diffs the tier-0/1 Go port against the same golden.
       - name: conform (tier 0/1 Go port)
         run: make impl
+      # And the same corpus driven through libsy's C ABI: two backends, one golden.
+      - name: conform (libsy via C ABI)
+        run: make impl-capi

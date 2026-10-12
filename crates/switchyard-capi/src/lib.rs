@@ -390,17 +390,27 @@ fn body(text: &str) -> &str {
     }
 }
 
+/// Decodes boundary JSON, quoting the input when it fails: a host debugging a cgo
+/// call has no other view of what crossed.
 fn decode<T: for<'de> Deserialize<'de>>(text: &str) -> Result<T, String> {
-    serde_json::from_str(body(text)).map_err(|error| format!("decoding config: {error}"))
+    let input = body(text);
+    serde_json::from_str(input).map_err(|error| {
+        let shown: String = input.chars().take(160).collect();
+        format!("decoding JSON: {error} (input: {shown})")
+    })
 }
 
 /// The request envelope. `llm_request` is libsy's normalized request; production
 /// hosts build it with `switchyard-translation`.
+///
+/// `headers` is `Option` rather than a defaulted map because JSON producers
+/// naturally emit `null` for an absent map, and `#[serde(default)]` only covers a
+/// *missing* key — not a present `null`.
 #[derive(Deserialize)]
 struct RequestInput {
     llm_request: LlmRequest,
     #[serde(default)]
-    headers: BTreeMap<String, String>,
+    headers: Option<BTreeMap<String, String>>,
 }
 
 unsafe fn build_request(
@@ -410,32 +420,28 @@ unsafe fn build_request(
     let text = cstr(request_json).ok_or("request_json must not be null")?;
     let input: RequestInput = decode(&text)?;
 
-    // Headers arrive separately when the host keeps them out of the request body.
-    let headers = match cstr(headers_json) {
+    // Headers may also arrive as their own argument, when the host keeps them out
+    // of the request body.
+    let from_argument = match cstr(headers_json) {
         Some(json) if !json.trim().is_empty() => {
             let parsed: BTreeMap<String, String> = decode(&json)?;
             Some(parsed)
         }
         _ => None,
     };
-    let metadata = headers
-        .or(if input.headers.is_empty() {
-            None
-        } else {
-            Some(input.headers)
-        })
-        .map(|headers| {
-            let mut map = HeaderMap::new();
-            for (name, value) in headers {
-                if let (Ok(name), Ok(value)) = (
-                    http::HeaderName::from_bytes(name.as_bytes()),
-                    http::HeaderValue::from_str(&value),
-                ) {
-                    map.insert(name, value);
-                }
+    let headers = from_argument.or(input.headers).filter(|h| !h.is_empty());
+    let metadata = headers.map(|headers| {
+        let mut map = HeaderMap::new();
+        for (name, value) in headers {
+            if let (Ok(name), Ok(value)) = (
+                http::HeaderName::from_bytes(name.as_bytes()),
+                http::HeaderValue::from_str(&value),
+            ) {
+                map.insert(name, value);
             }
-            Metadata::from_headers(&map)
-        });
+        }
+        Metadata::from_headers(&map)
+    });
 
     Ok(Request {
         llm_request: input.llm_request,

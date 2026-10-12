@@ -30,9 +30,11 @@ func main() {
 	caseGlob := flag.String("case", "", "only case_ids matching this glob")
 	decider := flag.String("decider", "replay", "replay | live (live needs TYPESAFE_API_KEY)")
 	capture := flag.String("capture", "", "directory to record live replies into")
+	backend := flag.String("backend", backendFromEnv(),
+		"port | capi (port is the pure-Go port; capi drives libsy through the C ABI)")
 	flag.Parse()
 
-	options := harness.Options{CaptureDir: *capture}
+	options := harness.Options{Backend: *backend, CaptureDir: *capture}
 	switch *decider {
 	case "replay":
 		// Deterministic default: consume each turn's scripted replies.
@@ -83,8 +85,18 @@ func main() {
 	if err := buffered.Flush(); err != nil {
 		fail(err)
 	}
-	fmt.Fprintf(os.Stderr, "libsy-conform-impl: %d turn(s) from %d case(s) (decider=%s)\n",
-		written, len(cases), *decider)
+	fmt.Fprintf(os.Stderr, "libsy-conform-impl: %d turn(s) from %d case(s) (backend=%s decider=%s)\n",
+		written, len(cases), *backend, *decider)
+}
+
+// backendFromEnv lets a caller select the backend without changing how the Rust
+// harness invokes this binary: the harness passes corpus/out/tier/case, and the
+// environment carries the rest.
+func backendFromEnv() string {
+	if backend := os.Getenv("LIBSY_CONFORM_BACKEND"); backend != "" {
+		return backend
+	}
+	return harness.BackendPort
 }
 
 func fail(err error) {

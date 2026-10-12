@@ -69,6 +69,23 @@ Three things the skeleton surfaced that a Go wrapper must know:
 3. **`crate-type` needs `rlib`.** With only `staticlib`/`cdylib`, the ABI's own
    integration tests cannot link it. (`switchyard-py` carries `rlib` for the same
    reason.)
+4. **Hash libsy's bytes; do not re-encode.** Anything derived from a returned
+   request (here, the conversation digest) must be computed over the exact bytes
+   libsy serialized. A wrapper that decodes into a map and re-marshals gets a
+   different field order — Go sorts map keys, so `{"role":…,"content":…}` becomes
+   `{"content":…,"role":…}` — and therefore a different digest:
+
+   ```
+   golden digest          sha256:7b247019ae91cc77…
+   libsy bytes, hashed    sha256:7b247019ae91cc77…   match
+   Go re-encoded, hashed  sha256:329d99ba902e8811…   differs
+   ```
+
+   Decode into `json.RawMessage` for those fields, not into a structure.
+5. **A JSON producer emits `null` for an absent map, and `#[serde(default)]` does
+   not cover it** — only a missing key. The ABI therefore takes optional maps as
+   `Option<BTreeMap<…>>`. This is the first bug the ABI backend hit, and it is the
+   kind of thing only an end-to-end diff finds.
 
 ## Caveats
 

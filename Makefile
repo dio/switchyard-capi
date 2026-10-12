@@ -1,6 +1,6 @@
 BIN := .bin/libsy-conform-impl
 
-.PHONY: all build build-rust build-go cargo-test verify impl go-test fmt-check clippy test live drift clean
+.PHONY: all build build-rust build-go cargo-test verify impl impl-capi go-test fmt-check clippy test live drift clean
 
 all: test
 
@@ -9,7 +9,7 @@ build: build-rust build-go
 build-rust:
 	cargo build
 
-build-go:
+build-go: build-rust
 	mkdir -p .bin
 	cd go && go build -o ../$(BIN) ./cmd/libsy-conform-impl
 
@@ -22,6 +22,12 @@ verify:
 # judge only, so it is tier-filtered.
 impl: build-go
 	cargo run -q -p libsy-conform -- --mode impl --tier 1
+
+# The same corpus and golden, driven through libsy's C ABI instead of the port.
+# Two backends behind one flag is what makes a divergence visible rather than
+# multiplied.
+impl-capi: build-go
+	LIBSY_CONFORM_BACKEND=capi cargo run -q -p libsy-conform -- --mode impl --tier 1
 
 # The cgo package links the Rust staticlib, so the Rust build comes first.
 go-test: build-rust
@@ -45,7 +51,7 @@ fmt-check:
 clippy:
 	cargo clippy --all-targets -- -D warnings
 
-test: fmt-check clippy cargo-test go-test examples-test verify impl
+test: fmt-check clippy cargo-test go-test examples-test verify impl impl-capi
 
 # Manual: drives the real System One endpoint. Needs TYPESAFE_API_KEY.
 # Captures every reply so it can be pinned and replayed.

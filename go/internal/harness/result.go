@@ -71,3 +71,14 @@ func MessagesDigest(prompt string) string {
 }
 
 func strptr(s string) *string { return &s }
+
+// digestRaw hashes a JSON value's exact bytes. Used where the value arrives
+// already serialized by libsy: re-encoding it through Go would reorder object
+// keys and change the digest.
+func digestRaw(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	sum := sha256.Sum256(raw)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}

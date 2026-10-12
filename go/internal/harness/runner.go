@@ -12,6 +12,9 @@ import (
 
 // Options configures a corpus run.
 type Options struct {
+	// Backend selects which implementation is driven. Empty means BackendPort.
+	Backend string
+
 	// Judged supplies judge calls. Nil replays each turn's scripted replies,
 	// which is the deterministic default. Pass a jev.Client to judge live.
 	Judged decision.Decider
@@ -21,9 +24,23 @@ type Options struct {
 	CaptureDir string
 }
 
-// RunCase runs every turn of a case against one router, so the latch persists
-// across turns exactly as it would in production.
+// RunCase runs a case against the selected backend. Both backends consume the
+// same corpus and emit the same schema, so the harness diffs either against the
+// same golden.
 func RunCase(ctx context.Context, c Case, options Options) ([]TurnResult, error) {
+	switch options.Backend {
+	case "", BackendPort:
+		return runCasePort(ctx, c, options)
+	case BackendCAPI:
+		return RunCaseCAPI(ctx, c, options)
+	default:
+		return nil, fmt.Errorf("unknown backend %q (want %q or %q)",
+			options.Backend, BackendPort, BackendCAPI)
+	}
+}
+
+// runCasePort runs a case against the pure-Go port.
+func runCasePort(ctx context.Context, c Case, options Options) ([]TurnResult, error) {
 	capture, err := captureSink(options.CaptureDir)
 	if err != nil {
 		return nil, err

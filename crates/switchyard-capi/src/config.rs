@@ -22,8 +22,10 @@ use switchyard_protocol::ModelId;
 #[derive(Debug, Deserialize)]
 pub struct CapabilityDecisionConfig {
     pub cutoff: f64,
+    /// `Option` rather than a defaulted map: a JSON producer emits `null` for an
+    /// absent map, and `#[serde(default)]` does not cover a present `null`.
     #[serde(default)]
-    pub candidates: BTreeMap<String, String>,
+    pub candidates: Option<BTreeMap<String, String>>,
     #[serde(default)]
     pub evidence: Value,
     #[serde(default)]
@@ -51,6 +53,7 @@ impl CapabilityDecisionConfig {
                 instructions: self.instructions,
                 candidates: self
                     .candidates
+                    .unwrap_or_default()
                     .into_iter()
                     .map(|(label, model)| (label, ModelId::from(model)))
                     .collect(),
