@@ -89,7 +89,11 @@ func (c Case) TurnSpecs() []TurnSpec {
 // about the normalizer it exists to exercise.
 func (t TurnSpec) Request() (libsygo.LlmRequest, error) {
 	if len(t.RawRequest) == 0 {
-		return libsygo.TextRequest(t.PromptText()), nil
+		request := libsygo.TextRequest(t.PromptText())
+		if t.Model != nil {
+			request.Model = *t.Model
+		}
+		return request, nil
 	}
 	switch t.WireFormat {
 	case "", "openai_chat":

@@ -167,6 +167,7 @@ func toResult(caseID string, index int, outcome libsygo.Outcome, decider *turnDe
 		MessagesDigest:     libsygo.MessagesDigest(outcome.Request.Messages),
 		Evidence:           outcome.Evidence,
 		Algorithm:          strptr(outcome.Algorithm),
+		ResponsePresent:    outcome.Responded,
 		UnconsumedScripted: unconsumed,
 	}
 }

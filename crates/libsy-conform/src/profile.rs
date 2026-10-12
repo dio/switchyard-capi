@@ -13,8 +13,8 @@ use serde::Deserialize;
 use serde_json::Value;
 use switchyard_libsy::{
     Algorithm, CapabilityJudgeConfig, ClassifyTrigger, DecisionJudgeConfig, HandoffNoteConfig,
-    LlmClassifierConfig, LlmFallback, LlmTaskClassifier, Noop, PickerMode, Random, StageRouter,
-    StageRouterConfig, TaskClassifierConfig,
+    LlmClassifierConfig, LlmFallback, LlmTaskClassifier, Noop, Passthrough, PickerMode, Random,
+    StageRouter, StageRouterConfig, TaskClassifierConfig,
 };
 use switchyard_protocol::ModelId;
 
@@ -23,6 +23,7 @@ use switchyard_protocol::ModelId;
 #[serde(tag = "algorithm", rename_all = "snake_case")]
 pub enum Profile {
     Noop,
+    Passthrough,
     Random {
         #[serde(default)]
         weights: Option<Vec<f64>>,
@@ -149,6 +150,7 @@ fn task_config(
 pub fn build(profile: &Profile) -> Result<Arc<dyn Algorithm>> {
     match profile {
         Profile::Noop => Ok(Arc::new(Noop {})),
+        Profile::Passthrough => Ok(Arc::new(Passthrough)),
         Profile::Random { weights, seed } => Ok(Arc::new(
             Random::new(weights.clone(), *seed).context("building random profile")?,
         )),
