@@ -1070,6 +1070,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "switchyard-capi"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "http",
+ "serde",
+ "serde_json",
+ "switchyard-libsy",
+ "switchyard-protocol",
+ "tokio",
+]
+
+[[package]]
 name = "switchyard-libsy"
 version = "0.3.0"
 source = "git+https://github.com/NVIDIA-NeMo/Switchyard.git?rev=5ec826210d5dff632af51ccac4f858769f902ef1#5ec826210d5dff632af51ccac4f858769f902ef1"

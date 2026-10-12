@@ -1,6 +1,6 @@
 BIN := .bin/libsy-conform-impl
 
-.PHONY: all build build-rust build-go verify impl go-test fmt-check clippy test live drift clean
+.PHONY: all build build-rust build-go cargo-test verify impl go-test fmt-check clippy test live drift clean
 
 all: test
 
@@ -26,6 +26,10 @@ impl: build-go
 go-test:
 	cd go && go test ./...
 
+# The Rust crates' own tests: the harness's, and the C ABI's pull-loop tests.
+cargo-test:
+	cargo test --workspace
+
 # The example lives in its own module so the library stays dependency-free.
 examples-test:
 	cd examples/envoy-callout && go test ./...
@@ -40,7 +44,7 @@ fmt-check:
 clippy:
 	cargo clippy --all-targets -- -D warnings
 
-test: fmt-check clippy go-test examples-test verify impl
+test: fmt-check clippy cargo-test go-test examples-test verify impl
 
 # Manual: drives the real System One endpoint. Needs TYPESAFE_API_KEY.
 # Captures every reply so it can be pinned and replayed.

@@ -20,6 +20,8 @@ jobs:
         run: make fmt-check
       - name: clippy
         run: make clippy
+      - name: rust tests (harness + C ABI)
+        run: make cargo-test
       - name: library tests
         run: make go-test
       - name: example tests (Envoy callout seam)

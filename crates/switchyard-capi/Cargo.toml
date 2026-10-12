@@ -1,0 +1,23 @@
+[package]
+name = "switchyard-capi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "C ABI for switchyard-libsy, for hosts that cannot link Rust directly"
+
+[lib]
+name = "switchyard_capi"
+# staticlib/cdylib for hosts (cgo links the staticlib); rlib so the ABI's own
+# integration tests can link it as a Rust library.
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[dependencies]
+switchyard-libsy.workspace = true
+switchyard-protocol.workspace = true
+
+futures.workspace = true
+http.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
