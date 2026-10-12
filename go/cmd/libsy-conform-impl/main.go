@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/dio/switchyard-capi/go/internal/conform"
+	"github.com/dio/switchyard-capi/go/internal/harness"
 )
 
 func main() {
@@ -32,28 +32,21 @@ func main() {
 	capture := flag.String("capture", "", "directory to record live replies into")
 	flag.Parse()
 
-	options := conform.Options{}
+	options := harness.Options{CaptureDir: *capture}
 	switch *decider {
 	case "replay":
-		// Deterministic default: consume the corpus's scripted replies.
+		// Deterministic default: consume each turn's scripted replies.
 	case "live":
-		live, err := conform.LiveDeciderFromEnv()
+		live, err := harness.NewLiveDecider()
 		if err != nil {
 			fail(err)
 		}
-		options.Decider = live
-		if *capture != "" {
-			sink, err := conform.NewCapture(*capture)
-			if err != nil {
-				fail(err)
-			}
-			options.Capture = sink
-		}
+		options.Judged = live
 	default:
 		fail(fmt.Errorf("unknown --decider %q (replay|live)", *decider))
 	}
 
-	cases, err := conform.LoadDir(*corpus, *tier, *caseGlob)
+	cases, err := harness.LoadDir(*corpus, *tier, *caseGlob)
 	if err != nil {
 		fail(err)
 	}
@@ -76,7 +69,7 @@ func main() {
 	ctx := context.Background()
 	written := 0
 	for _, c := range cases {
-		results, err := conform.RunCase(ctx, c, options)
+		results, err := harness.RunCase(ctx, c, options)
 		if err != nil {
 			fail(err)
 		}

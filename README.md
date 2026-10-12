@@ -19,14 +19,62 @@ and what did upstream change?" a mechanical check.
 
 ```
 crates/libsy-conform/     the harness (plain Rust bin → libsy, no FFI)
-go/                       the tier-0/1 port (stdlib only, zero deps)
+go/decision/              public library: the tier-0/1 routing core (no I/O)
+go/jev/                   public: System One IR, wire codec, HTTP client
+go/internal/harness/      internal: corpus, result schema, runner plumbing
+go/cmd/libsy-conform-impl the runner binary
 crates/switchyard-capi/   the C-ABI shim (later, only if we bind)
 patches/                  proposed upstream changes (see §5 of the spec)
 testdata/corpus/          cases (JSONL) + PIN
 testdata/golden/          recorded oracle results (checked in)
 testdata/fixtures/        live decider captures, with provenance
-docs/                     the harness spec and the profile contract
+docs/                     the harness spec
 ```
+
+> The tenant **profile contract** (what a profile is, who materializes it, how a
+> dataplane resolves one per request) is a dataplane concern and lives with the
+> dataplane, not here. Nothing in this repository depends on it.
+
+## Consuming this
+
+`github.com/dio/switchyard-capi/go/decision` is the library; everything else is
+test infrastructure. The dependency direction is one-way: **a dataplane imports
+this, this never imports a dataplane.** Nothing here knows about tenants, keys,
+catalogs, or Envoy.
+
+```go
+import (
+    "context"
+
+    "github.com/dio/switchyard-capi/go/decision"
+    "github.com/dio/switchyard-capi/go/jev"
+)
+
+// The host supplies the judge call, so egress stays host-side: this type is
+// where a dataplane issues its own callout (TLS, credentials, retries, timeout).
+type judgeCallout struct{ /* cluster, deadline, ... */ }
+
+func (judgeCallout) Call(ctx context.Context, request jev.DecisionRequest) (jev.DecisionResponse, error) {
+    // ... issue the callout through the host's own stack
+}
+
+router, err := decision.New(profile, models, judgeCallout{})
+outcome := router.Route(ctx, decision.Turn{
+    Prompt:  prompt,
+    Session: tenantID + "/" + sessionID, // must be tenant-namespaced
+})
+// outcome.SelectedModelIDs is the fallback order, chosen model first.
+// outcome.Evidence explains the decision.
+```
+
+`decision` performs **no I/O** — it never resolves a URL, holds a credential, or
+opens a socket. `jev` is a convenience client for hosts that have no HTTP stack of
+their own (and for the harness); a dataplane with its own egress implements
+`decision.Decider` directly and uses `jev` only for the IR types.
+
+Cache the built `Router` by `(tenant, profile ID, revision)`, and namespace
+session ids per tenant: two tenants sharing a session id would otherwise share
+retained routing state.
 
 ## Pin policy
 

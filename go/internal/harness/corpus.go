@@ -1,12 +1,8 @@
-// Package conform is a tier-0/1 port scaffold: the Switchyard decision core that
-// owns nothing but the judge plumbing. Tier 0 is the JEV/System One wire
-// protocol; tier 1 is the cascade, the session latch, the cutoff, fail-open, and
-// candidate ordering.
-//
-// Tier 3 (stage_router / tool signals) is deliberately absent — that is the
-// module where porting is most expensive, most churn-prone, and least verifiable,
-// and the recommendation is to bind it rather than port it.
-package conform
+// Package harness is the conformance harness's corpus plumbing: it loads cases,
+// drives the public decision.Router, and emits the result schema the Rust oracle
+// produces. It is internal because it exists to test the library, not to be
+// consumed by it.
+package harness
 
 import (
 	"encoding/json"
@@ -15,41 +11,26 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/dio/switchyard-capi/go/decision"
 )
 
 // Case is one corpus case.
 type Case struct {
-	CaseID   string              `json:"case_id"`
-	Tier     *int                `json:"tier"`
-	Profile  Profile             `json:"profile"`
-	Models   map[string][]string `json:"models"`
-	Subagent map[string][]string `json:"subagent_models"`
-	Headers  map[string]string   `json:"headers"`
-	Prompt   *string             `json:"prompt"`
-	Model    *string             `json:"model"`
-	Stream   *bool               `json:"stream"`
-	Decider  *DeciderResponses   `json:"decider_responses"`
-	Turns    []TurnSpec          `json:"turns"`
-}
+	CaseID  string           `json:"case_id"`
+	Tier    *int             `json:"tier"`
+	Profile decision.Profile `json:"profile"`
+	Models  decision.Models  `json:"models"`
 
-// Profile is the tenant-selectable profile: algorithm plus its config.
-type Profile struct {
-	Algorithm           string     `json:"algorithm"`
-	Mode                string     `json:"mode"`
-	Judge               *JudgeSpec `json:"judge"`
-	FailOpen            *bool      `json:"fail_open"`
-	SessionAffinity     bool       `json:"session_affinity"`
-	MessageHashFallback bool       `json:"message_hash_fallback"`
-	RecentTurnWindow    *int       `json:"recent_turn_window"`
-}
+	// Single-turn shorthand. Ignored when Turns is present.
+	Headers map[string]string `json:"headers"`
+	Prompt  *string           `json:"prompt"`
+	Model   *string           `json:"model"`
+	Stream  *bool             `json:"stream"`
+	Decider *DeciderResponses `json:"decider_responses"`
 
-// JudgeSpec is the judge configuration. Only the decision judge is ported.
-type JudgeSpec struct {
-	Type         string            `json:"type"`
-	Cutoff       float64           `json:"cutoff"`
-	Candidates   map[string]string `json:"candidates"`
-	Evidence     json.RawMessage   `json:"evidence"`
-	Instructions json.RawMessage   `json:"instructions"`
+	// Multi-turn sequence sharing one router.
+	Turns []TurnSpec `json:"turns"`
 }
 
 // TurnSpec is one turn; every field is optional.
@@ -61,12 +42,12 @@ type TurnSpec struct {
 	Decider *DeciderResponses `json:"decider_responses"`
 }
 
-// DeciderResponses holds the scripted replies, consumed in step order.
+// DeciderResponses holds the scripted judge replies, consumed in call order.
 type DeciderResponses struct {
 	ByIndex []Scripted `json:"by_index"`
 }
 
-// Scripted is one scripted reply.
+// Scripted is one scripted judge reply, in the corpus's on-disk shape.
 type Scripted struct {
 	Kind     string          `json:"kind"`
 	Response json.RawMessage `json:"response"`
@@ -86,6 +67,27 @@ func (c Case) TurnSpecs() []TurnSpec {
 		Stream:  c.Stream,
 		Decider: c.Decider,
 	}}
+}
+
+// Fixtures are the scripted replies for a turn.
+func (t TurnSpec) Fixtures() []Scripted {
+	if t.Decider == nil {
+		return nil
+	}
+	return t.Decider.ByIndex
+}
+
+// Session is the turn's session key.
+func (t TurnSpec) Session() string {
+	return t.Headers["x-switchyard-session-id"]
+}
+
+// PromptText is the turn's prompt.
+func (t TurnSpec) PromptText() string {
+	if t.Prompt == nil {
+		return ""
+	}
+	return *t.Prompt
 }
 
 // LoadDir loads every *.jsonl suite in dir, applying the same tier and case-glob

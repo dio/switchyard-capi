@@ -1,4 +1,4 @@
-package conform
+package harness
 
 import (
 	"crypto/sha256"
