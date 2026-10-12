@@ -1,6 +1,7 @@
 package conform
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"slices"
@@ -12,6 +13,15 @@ const algorithmName = "llm_task_classifier"
 // defaultFallbackCategory is where an abstaining capability classifier lands: the
 // cascade closes with a default classifier for the capable category.
 const defaultFallbackCategory = "capable"
+
+// Decider is one decision call. jev.Client satisfies it; tests substitute a fake.
+type Decider interface {
+	Call(ctx context.Context, request DecisionRequest) (DecisionResponse, error)
+}
+
+// captureFunc records a live decider reply, in the corpus's scripted reply shape,
+// so it can be pinned and replayed deterministically.
+type captureFunc func(caseID string, turn int, reply Scripted) error
 
 // Algorithm is the tier-1 port: a two-stage cascade over a decision judge, plus
 // the session latch.
@@ -25,7 +35,18 @@ type Algorithm struct {
 	failOpen        bool
 	sessionAffinity bool
 	models          map[string][]string
-	latched         map[string]latch
+
+	// Judge inputs, needed only when a live decider is attached — replay mode
+	// consumes the neutral IR from the corpus instead.
+	candidates   map[string]string
+	judgeModel   string
+	instructions json.RawMessage
+	evidence     json.RawMessage
+
+	decider Decider
+	capture captureFunc
+
+	latched map[string]latch
 }
 
 type latch struct {
@@ -33,9 +54,15 @@ type latch struct {
 	category string
 }
 
+// Options configures an optional live decider and capture sink.
+type Options struct {
+	Decider Decider
+	Capture captureFunc
+}
+
 // NewAlgorithm builds the port for a profile, rejecting anything outside tier 0/1
 // rather than guessing.
-func NewAlgorithm(profile Profile, models map[string][]string) (*Algorithm, error) {
+func NewAlgorithm(profile Profile, models map[string][]string, options Options) (*Algorithm, error) {
 	if profile.Algorithm != "llm_classifier" {
 		return nil, fmt.Errorf(
 			"profile algorithm %q is not ported: tier 0/1 covers llm_classifier only",
@@ -53,31 +80,51 @@ func NewAlgorithm(profile Profile, models map[string][]string) (*Algorithm, erro
 	if profile.FailOpen != nil {
 		failOpen = *profile.FailOpen
 	}
-	return &Algorithm{
+
+	instructions := profile.Judge.Instructions
+	if len(instructions) == 0 {
+		instructions = json.RawMessage(relativeAdvantagePrompt)
+	}
+
+	algorithm := &Algorithm{
 		cutoff:          profile.Judge.Cutoff,
 		failOpen:        failOpen,
 		sessionAffinity: profile.SessionAffinity,
 		models:          models,
+		candidates:      profile.Judge.Candidates,
+		instructions:    instructions,
+		evidence:        profile.Judge.Evidence,
+		decider:         options.Decider,
+		capture:         options.Capture,
 		latched:         map[string]latch{},
-	}, nil
+	}
+
+	if algorithm.decider != nil {
+		judgeModels := models["judge"]
+		if len(judgeModels) == 0 {
+			return nil, fmt.Errorf("profile has no judge model, required by the live decider")
+		}
+		algorithm.judgeModel = judgeModels[0]
+	}
+	return algorithm, nil
 }
 
 // RunCase runs every turn of a case against one algorithm, so the latch persists
 // across turns exactly as it would in production.
-func RunCase(c Case) ([]TurnResult, error) {
-	algorithm, err := NewAlgorithm(c.Profile, c.Models)
+func RunCase(ctx context.Context, c Case, options Options) ([]TurnResult, error) {
+	algorithm, err := NewAlgorithm(c.Profile, c.Models, options)
 	if err != nil {
 		return nil, fmt.Errorf("case %s: %w", c.CaseID, err)
 	}
 	turns := c.TurnSpecs()
 	results := make([]TurnResult, 0, len(turns))
 	for index, turn := range turns {
-		results = append(results, algorithm.runTurn(c.CaseID, index, turn))
+		results = append(results, algorithm.runTurn(ctx, c.CaseID, index, turn))
 	}
 	return results, nil
 }
 
-func (a *Algorithm) runTurn(caseID string, index int, turn TurnSpec) TurnResult {
+func (a *Algorithm) runTurn(ctx context.Context, caseID string, index int, turn TurnSpec) TurnResult {
 	prompt := ""
 	if turn.Prompt != nil {
 		prompt = *turn.Prompt
@@ -97,12 +144,22 @@ func (a *Algorithm) runTurn(caseID string, index int, turn TurnSpec) TurnResult 
 		}
 	}
 
-	if len(scripted) == 0 {
-		return ErrorResult(caseID, index, []string{"CallDecision", "Error"}, 0,
-			"unexpected CallDecision: the case scripted no response")
+	// One decision path, whichever way the judge reply arrives.
+	var reply Scripted
+	unconsumed := 0
+	if a.decider != nil {
+		live, err := a.callDecider(ctx, caseID, index, prompt)
+		if err != nil {
+			return a.failOpenOrNot(caseID, index, prompt, len(scripted), "call_error", err.Error())
+		}
+		reply, unconsumed = live, len(scripted)
+	} else {
+		if len(scripted) == 0 {
+			return ErrorResult(caseID, index, []string{"CallDecision", "Error"}, 0,
+				"unexpected CallDecision: the case scripted no response")
+		}
+		reply, unconsumed = scripted[0], len(scripted)-1
 	}
-	reply := scripted[0]
-	unconsumed := len(scripted) - 1
 
 	switch reply.Kind {
 	case "decision":
@@ -129,6 +186,28 @@ func (a *Algorithm) runTurn(caseID string, index int, turn TurnSpec) TurnResult 
 		return ErrorResult(caseID, index, []string{"CallDecision", "Error"}, unconsumed,
 			fmt.Sprintf("scripted step %q cannot serve a decision call", reply.Kind))
 	}
+}
+
+// callDecider performs a live decision call and, when a sink is configured,
+// records the reply so it can be replayed.
+func (a *Algorithm) callDecider(ctx context.Context, caseID string, index int, prompt string) (Scripted, error) {
+	request, err := a.buildDecisionRequest(prompt)
+	if err != nil {
+		return Scripted{}, err
+	}
+	response, err := a.decider.Call(ctx, request)
+	if err != nil {
+		return Scripted{}, err
+	}
+	encoded, err := json.Marshal(response)
+	if err != nil {
+		return Scripted{}, err
+	}
+	reply := Scripted{Kind: "decision", Response: encoded}
+	if a.capture != nil {
+		_ = a.capture(caseID, index, reply)
+	}
+	return reply, nil
 }
 
 // failOpenOrNot handles a judge that produced no usable verdict: fail-open lands

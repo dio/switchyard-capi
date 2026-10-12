@@ -1,0 +1,34 @@
+{
+  "_provenance": "Live capture of a realistic hard task where the capable tier genuinely matters. Recorded from the TypeSafe System One (JEV) endpoint; re-recording may change it as the served model moves.",
+  "captured_at": "2026-10-12",
+  "request": {
+    "endpoint": "https://api.typesafe.ai/v1/systemone",
+    "model_requested": "jev-latest",
+    "prompt": "Refactor the payment module onto the new ledger abstraction, migrate every caller, and get the full integration suite green. Several tests are failing and the retry logic is subtly wrong.",
+    "cutoff": 0.4
+  },
+  "neutral_ir_response": {
+    "id": null,
+    "model": "jev-1.13.0",
+    "answers": {
+      "route": {
+        "value": {
+          "type": "choice",
+          "data": {
+            "probabilities": {
+              "advantage": 0.77,
+              "no_advantage": 0.23
+            },
+            "selected": "advantage"
+          }
+        },
+        "provider_confidence": 0.54
+      }
+    },
+    "usage": {
+      "input_tokens": 875,
+      "output_tokens": 38
+    }
+  },
+  "outcome": "advantage 0.77 > cutoff 0.4 -> capable. Contrast with the trivial prompts in this suite, which JEV rates ~0.02-0.28 and route efficient."
+}

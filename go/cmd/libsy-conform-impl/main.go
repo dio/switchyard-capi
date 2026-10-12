@@ -6,10 +6,15 @@
 //
 //	go build -o .bin/libsy-conform-impl ./go/cmd/libsy-conform-impl
 //	libsy-conform --mode impl --tier 1
+//
+// With TYPESAFE_API_KEY set, --decider live calls the real System One endpoint
+// instead of replaying fixtures, and --capture records the replies so they can be
+// pinned and replayed deterministically.
 package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -23,7 +28,30 @@ func main() {
 	out := flag.String("out", "", "results JSONL path (default stdout)")
 	tier := flag.Int("tier", -1, "only cases with this tier")
 	caseGlob := flag.String("case", "", "only case_ids matching this glob")
+	decider := flag.String("decider", "replay", "replay | live (live needs TYPESAFE_API_KEY)")
+	capture := flag.String("capture", "", "directory to record live replies into")
 	flag.Parse()
+
+	options := conform.Options{}
+	switch *decider {
+	case "replay":
+		// Deterministic default: consume the corpus's scripted replies.
+	case "live":
+		live, err := conform.LiveDeciderFromEnv()
+		if err != nil {
+			fail(err)
+		}
+		options.Decider = live
+		if *capture != "" {
+			sink, err := conform.NewCapture(*capture)
+			if err != nil {
+				fail(err)
+			}
+			options.Capture = sink
+		}
+	default:
+		fail(fmt.Errorf("unknown --decider %q (replay|live)", *decider))
+	}
 
 	cases, err := conform.LoadDir(*corpus, *tier, *caseGlob)
 	if err != nil {
@@ -45,9 +73,10 @@ func main() {
 	buffered := bufio.NewWriter(writer)
 	encoder := json.NewEncoder(buffered)
 
+	ctx := context.Background()
 	written := 0
 	for _, c := range cases {
-		results, err := conform.RunCase(c)
+		results, err := conform.RunCase(ctx, c, options)
 		if err != nil {
 			fail(err)
 		}
@@ -61,7 +90,8 @@ func main() {
 	if err := buffered.Flush(); err != nil {
 		fail(err)
 	}
-	fmt.Fprintf(os.Stderr, "libsy-conform-impl: %d turn(s) from %d case(s)\n", written, len(cases))
+	fmt.Fprintf(os.Stderr, "libsy-conform-impl: %d turn(s) from %d case(s) (decider=%s)\n",
+		written, len(cases), *decider)
 }
 
 func fail(err error) {

@@ -1,0 +1,41 @@
+name: drift
+
+# Scheduled early-warning: has upstream Switchyard behaviour moved since the pin?
+# Re-pins to main, re-runs the oracle against the recorded golden, and reports
+# the behavioural diff. This is the input to deciding whether owning routing
+# outside Rust stays cheap.
+on:
+  schedule:
+    - cron: '0 6 * * 1' # Mondays, 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Check upstream drift
+        id: drift
+        run: |
+          chmod +x scripts/drift-check.sh
+          scripts/drift-check.sh drift-report.txt
+          echo "status=clean" >> "$GITHUB_OUTPUT" || true
+        continue-on-error: true
+      - name: Publish report to job summary
+        if: always()
+        run: cat drift-report.txt >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: drift-report
+          path: drift-report.txt
+      # Fail the job so drift is visible in the Actions list, but only after the
+      # report has been published.
+      - name: Fail on drift
+        if: steps.drift.outcome == 'failure'
+        run: exit 1
