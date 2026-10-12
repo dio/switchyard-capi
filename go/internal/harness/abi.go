@@ -61,7 +61,14 @@ func runTurnCAPI(
 	modelsJSON string,
 	options Options,
 ) (TurnResult, error) {
-	requestJSON, err := abiRequest(turn)
+	request, err := turn.Request()
+	if err != nil {
+		// The port's decoder refuses this request, and so does the oracle's: report
+		// the same rejection rather than letting this backend route an input the
+		// other one rejected.
+		return RejectedResult(caseID, index, err.Error()), nil
+	}
+	requestJSON, err := abiRequest(request, turn.Headers)
 	if err != nil {
 		return TurnResult{}, fmt.Errorf("case %s turn %d: %w", caseID, index, err)
 	}
@@ -280,22 +287,20 @@ func abiAlgorithm(p libsygo.Profile) (kind, configJSON string, err error) {
 	return "llm_classifier", string(config), nil
 }
 
-// abiRequest builds the ABI's request envelope for a turn.
-func abiRequest(turn TurnSpec) (string, error) {
-	model := "auto"
-	if turn.Model != nil && *turn.Model != "" {
-		model = *turn.Model
+// abiRequest builds the ABI's request envelope, from the same decoded request the
+// port routes. Building it from a prompt instead would compare the two backends on
+// different inputs, and the ABI result would then say nothing about the normalizer.
+func abiRequest(request libsygo.LlmRequest, headers map[string]string) (string, error) {
+	if request.Model == "" {
+		request.Model = "auto"
 	}
 
-	envelope := map[string]any{
-		"llm_request": map[string]any{
-			"model": model,
-			"messages": []map[string]any{{
-				"role":    "user",
-				"content": []map[string]any{{"type": "text", "text": turn.PromptText()}},
-			}},
-		},
-		"headers": turn.Headers,
+	envelope := struct {
+		LlmRequest json.RawMessage   `json:"llm_request"`
+		Headers    map[string]string `json:"headers"`
+	}{
+		LlmRequest: libsygo.LlmRequestJSON(request),
+		Headers:    headers,
 	}
 	encoded, err := json.Marshal(envelope)
 	if err != nil {

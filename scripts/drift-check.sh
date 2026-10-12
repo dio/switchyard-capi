@@ -31,7 +31,10 @@ cd "$repo_root"
 
 UPSTREAM="${UPSTREAM:-https://github.com/NVIDIA-NeMo/Switchyard.git}"
 REPORT="${1:-drift-report.txt}"
-PIN_FILE="testdata/corpus/PIN"
+
+# The corpus and golden are canonical in libsygo; the harness only reads them.
+LIBSYGO_TESTDATA="${LIBSYGO_TESTDATA:-../libsygo/testdata}"
+PIN_FILE="$LIBSYGO_TESTDATA/corpus/PIN"
 
 pinned="$(tr -d '[:space:]' < "$PIN_FILE")"
 if [ -n "${DRIFT_REV:-}" ]; then
@@ -194,7 +197,7 @@ say "## C. Turn-level movement, golden@pinned vs golden@latest"
 say ""
 say '```'
 
-python3 - "$scratch/golden-latest" testdata/golden <<'PY' | tee -a "$REPORT"
+python3 - "$scratch/golden-latest" "$LIBSYGO_TESTDATA/golden" <<'PY' | tee -a "$REPORT"
 import json, pathlib, sys
 
 def load(directory):

@@ -55,12 +55,20 @@ func runCasePort(ctx context.Context, c Case, options Options) ([]TurnResult, er
 	turns := c.TurnSpecs()
 	results := make([]TurnResult, 0, len(turns))
 	for index, turn := range turns {
+		request, err := turn.Request()
+		if err != nil {
+			// A request the port will not decode is a rejection, not a harness
+			// failure: the oracle records the same label for input libsy refuses,
+			// so "rejected rather than coerced" is the behaviour being compared.
+			results = append(results, RejectedResult(c.CaseID, index, err.Error()))
+			continue
+		}
 		decider.begin(c.CaseID, index, turn.Fixtures())
 		outcome := router.Route(ctx, libsygo.Turn{
-			Prompt:  turn.PromptText(),
+			Request: request,
 			Session: turn.Session(),
 		}, decider)
-		results = append(results, toResult(c.CaseID, index, turn.PromptText(), outcome, decider))
+		results = append(results, toResult(c.CaseID, index, request, outcome, decider))
 	}
 	return results, nil
 }
@@ -126,7 +134,13 @@ func (d *turnDecider) Call(ctx context.Context, request jev.DecisionRequest) (je
 }
 
 // toResult maps a routing outcome onto the oracle's result schema.
-func toResult(caseID string, index int, prompt string, outcome libsygo.Outcome, decider *turnDecider) TurnResult {
+//
+// The digest and the instructions come from the decoded request that was actually
+// routed, not from a re-encoding: the oracle digests libsy's own bytes, and Go
+// would reorder object keys on the way back.
+func toResult(
+	caseID string, index int, request libsygo.LlmRequest, outcome libsygo.Outcome, decider *turnDecider,
+) TurnResult {
 	unconsumed := decider.unconsumed()
 
 	if outcome.Error != "" {
@@ -149,8 +163,8 @@ func toResult(caseID string, index int, prompt string, outcome libsygo.Outcome, 
 		SelectedModelIDs:   outcome.SelectedModelIDs,
 		SelectedModelID:    strptr(outcome.Model),
 		RewrittenModel:     strptr(outcome.Model),
-		Instructions:       json.RawMessage(`[]`),
-		MessagesDigest:     MessagesDigest(prompt),
+		Instructions:       libsygo.InstructionsJSON(request.Instructions),
+		MessagesDigest:     libsygo.MessagesDigest(request.Messages),
 		Evidence:           outcome.Evidence,
 		Algorithm:          strptr(libsygo.AlgorithmName),
 		UnconsumedScripted: unconsumed,

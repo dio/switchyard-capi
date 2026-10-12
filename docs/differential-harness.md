@@ -61,9 +61,15 @@ between cases** unless the case declares a session sequence (§4), and **mask
 ## 2. Corpus format
 
 One JSON object per line (JSONL), UTF-8, `\n` terminated. Blank lines and lines
-starting with `//` are ignored. Files live in `testdata/corpus/<suite>.jsonl`.
+starting with `//` are ignored. Files live in `../libsygo/testdata/corpus/<suite>.jsonl`.
 The corpus is valid against exactly one upstream revision; record it in
-`testdata/corpus/PIN` (the Switchyard commit sha the oracle was built from).
+`../libsygo/testdata/corpus/PIN` (the Switchyard commit sha the oracle was built from).
+
+The corpus and the golden next to it are canonical in **libsygo**, not here. They are
+that package's conformance spec, and it must be able to replay them on every commit
+with no Rust toolchain and no network — which is the point of having a port at all.
+This repo only reads them: it owns recording, because that is what needs the oracle,
+the pin and the drift job. `LIBSYGO_TESTDATA` overrides where they are found.
 
 ```jsonc
 {
@@ -245,10 +251,10 @@ Two runners, one shared corpus and result schema.
 
 A **plain bin**, e.g. `cargo run -p libsy-conform`, linking `libsy`,
 `switchyard-protocol`, and `switchyard-translation` directly — no FFI, no shim.
-Pin it to the revision in `testdata/corpus/PIN`.
+Pin it to the revision in `../libsygo/testdata/corpus/PIN`.
 
 ```sh
-libsy-conform --corpus testdata/corpus --mode oracle --out out/oracle.jsonl
+libsy-conform --corpus ../libsygo/testdata/corpus --mode oracle --out out/oracle.jsonl
 ```
 
 Internally: parse case → build `Algorithm` from `profile` → build
@@ -265,7 +271,7 @@ side (§4) is written to match it — not the other way round.
 Same CLI, same schema:
 
 ```sh
-go run ./cmd/libsy-conform --corpus testdata/corpus --mode impl --out out/go.jsonl
+go run ./cmd/libsy-conform --corpus ../libsygo/testdata/corpus --mode impl --out out/go.jsonl
 ```
 
 ### Modes
@@ -279,7 +285,7 @@ go run ./cmd/libsy-conform --corpus testdata/corpus --mode impl --out out/go.jso
 
 ```sh
 # full round trip
-libsy-conform --corpus testdata/corpus --mode verify
+libsy-conform --corpus ../libsygo/testdata/corpus --mode verify
 # diff detail
 libsy-conform ... --mode verify --report out/diff.json --verbose
 ```
@@ -416,9 +422,9 @@ the densest corpus.
 ## 8. CI and acceptance
 
 ```sh
-# oracle pinned to the commit in testdata/corpus/PIN
+# oracle pinned to the commit in ../libsygo/testdata/corpus/PIN
 cargo test -p libsy                       # upstream's own suite still green
-libsy-conform --corpus testdata/corpus --mode verify
+libsy-conform --corpus ../libsygo/testdata/corpus --mode verify
 ```
 
 Acceptance for swapping in the Go implementation behind the same profile API:

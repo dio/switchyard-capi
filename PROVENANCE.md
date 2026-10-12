@@ -3,7 +3,7 @@
 ## Embedded judge prompt
 
 `go/internal/conform/prompts/relative_advantage.json` is copied **verbatim** from
-upstream at the revision in `testdata/corpus/PIN`:
+upstream at the revision in `../libsygo/testdata/corpus/PIN`:
 
 ```
 crates/libsy/src/prompts/capability-classifier/relative_advantage.json

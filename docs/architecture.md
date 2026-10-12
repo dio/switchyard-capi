@@ -109,7 +109,7 @@ reason `tool_signals` is documented as pure and I/O-free.
 ## Conformance
 
 ```
-  upstream libsy (Rust)          pinned revision, testdata/corpus/PIN
+  upstream libsy (Rust)          pinned revision, ../libsygo/testdata/corpus/PIN
         │  record
         ▼
   corpus + decider fixtures      checked in

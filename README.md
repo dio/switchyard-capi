@@ -24,11 +24,17 @@ go/capi/                  public: cgo wrapper over the Rust C ABI
 go/internal/harness/      internal: corpus, result schema, runner plumbing
 go/cmd/libsy-conform-impl the runner binary
 patches/                  proposed upstream changes (see §5 of the spec)
-testdata/corpus/          cases (JSONL) + PIN
-testdata/golden/          recorded oracle results (checked in)
 testdata/fixtures/        live decider captures, with provenance
 docs/                     the harness spec, sizing, architecture, libsy's shape
 ```
+
+> The **corpus and its recorded golden are canonical in
+> [`github.com/dio/libsygo`](https://github.com/dio/libsygo)** (its `testdata/`),
+> because they are that package's conformance spec and it replays them in its own CI
+> with no Rust toolchain and no network. This repo only *reads* them; defaults
+> resolve to `../libsygo/testdata`, and `LIBSYGO_TESTDATA` overrides the location.
+> Recording truth needs the oracle, the pin and the drift job — which is what lives
+> here.
 
 > The **Go implementation of libsy lives in
 > [`github.com/dio/libsygo`](https://github.com/dio/libsygo)**, not here. This repo
@@ -125,7 +131,7 @@ outside tier 0/1 with a clear error rather than approximating it.
 libsy Rust unit tests        (upstream, authoritative)
       │  record
       ▼
-corpus + decider fixtures    (checked in, pinned by testdata/corpus/PIN)
+corpus + decider fixtures    (canonical in libsygo; pinned by its testdata/corpus/PIN)
       │  verify
       ├────────────► Rust oracle bin  (this crate, links libsy directly)
       └────────────► other impls      (Go port, or the C-ABI shim)
@@ -137,21 +143,21 @@ match.
 ## Usage
 
 ```sh
-# run the corpus and record golden results
-cargo run -p libsy-conform -- --corpus testdata/corpus --mode record
+# run the corpus and record golden results (into libsygo's testdata/)
+cargo run -p libsy-conform -- --mode record
 
 # re-run and diff against the recorded golden (proves determinism + catches drift)
-cargo run -p libsy-conform -- --corpus testdata/corpus --mode verify
+cargo run -p libsy-conform -- --mode verify
 
 # filter for fast iteration
-cargo run -p libsy-conform -- --corpus testdata/corpus --mode verify --tier 1 --case 'affinity/*'
+cargo run -p libsy-conform -- --mode verify --tier 1 --case 'affinity/*'
 ```
 
 Exit code is non-zero on any diff, missing/extra case, or error.
 
 ## Pinning
 
-The harness is valid against exactly one Switchyard revision, recorded in
+The harness is valid against exactly one Switchyard revision, recorded in libsygo's
 `testdata/corpus/PIN` and mirrored in the `rev` of the git dependency in
 `Cargo.toml`.
 

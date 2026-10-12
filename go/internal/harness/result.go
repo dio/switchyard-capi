@@ -23,6 +23,10 @@ type TurnResult struct {
 	ResponsePresent    bool            `json:"response_present"`
 	UnconsumedScripted int             `json:"unconsumed_scripted"`
 	Error              *string         `json:"error"`
+
+	// detail is why a rejection happened, in full. Never serialized and never
+	// diffed: the recorded error is the label, this is for the operator.
+	detail string `json:"-"`
 }
 
 // ErrorResult is the shape used when a run ends without a routing outcome. The
@@ -41,33 +45,19 @@ func ErrorResult(caseID string, turn int, steps []string, unconsumed int, messag
 	}
 }
 
-// message/contentBlock mirror libsy's `Message`/`ContentBlock::Text` serde shape
-// so the digest is byte-identical to Rust's compact serde_json output.
-type message struct {
-	Role    string         `json:"role"`
-	Content []contentBlock `json:"content"`
-}
+// requestRejected is the label the oracle records when a request is refused
+// before it can route. The provider's wording is deliberately not compared: two
+// implementations will not phrase a rejection identically, so diffing it would
+// fail on a difference that is not a behaviour.
+const requestRejected = "request_rejected"
 
-type contentBlock struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
-}
-
-// MessagesDigest reproduces the oracle's digest: sha256 over compact JSON of the
-// normalized text-only conversation, matching serde_json's output.
-func MessagesDigest(prompt string) string {
-	if prompt == "" {
-		return ""
-	}
-	encoded, err := json.Marshal([]message{{
-		Role:    "user",
-		Content: []contentBlock{{Type: "text", Text: prompt}},
-	}})
-	if err != nil {
-		return ""
-	}
-	sum := sha256.Sum256(encoded)
-	return "sha256:" + hex.EncodeToString(sum[:])
+// RejectedResult is a request the port declines to decode. It must match the
+// oracle's label for input libsy refuses, which is what makes "rejected rather
+// than coerced" a comparable behaviour instead of an unstated assumption.
+func RejectedResult(caseID string, turn int, detail string) TurnResult {
+	result := ErrorResult(caseID, turn, []string{"Error"}, 0, requestRejected)
+	result.detail = detail
+	return result
 }
 
 func strptr(s string) *string { return &s }

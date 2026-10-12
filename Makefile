@@ -1,5 +1,10 @@
 BIN := .bin/libsy-conform-impl
 
+# The corpus and golden are canonical in libsygo. They are that library's
+# conformance spec, and it replays them in its own CI with no Rust toolchain — which
+# is why they live with the port rather than with the oracle that records them.
+LIBSYGO_TESTDATA ?= ../libsygo/testdata
+
 .PHONY: all build build-rust build-go cargo-test verify impl impl-capi go-test fmt-check clippy test live drift clean
 
 all: test
@@ -56,7 +61,7 @@ test: fmt-check clippy cargo-test go-test examples-test verify impl impl-capi
 # Manual: drives the real System One endpoint. Needs TYPESAFE_API_KEY.
 # Captures every reply so it can be pinned and replayed.
 live: build-go
-	$(BIN) --corpus testdata/corpus --tier 1 --decider live \
+	$(BIN) --corpus $(LIBSYGO_TESTDATA)/corpus --tier 1 --decider live \
 	  --capture .bin/capture --out .bin/live.jsonl
 
 # Early-warning, scheduled weekly. Re-pins to upstream main and reports both

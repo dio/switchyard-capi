@@ -24,8 +24,8 @@ USAGE:
     libsy-conform [OPTIONS]
 
 OPTIONS:
-    --corpus <DIR>   corpus directory of *.jsonl suites   [default: testdata/corpus]
-    --golden <DIR>   recorded results directory           [default: testdata/golden]
+    --corpus <DIR>   corpus directory of *.jsonl suites   [default: ../libsygo/testdata/corpus]
+    --golden <DIR>   recorded results directory           [default: ../libsygo/testdata/golden]
     --mode <MODE>    record | verify | bless | impl       [default: verify]
     --impl <PATH>    impl runner binary                   [default: .bin/libsy-conform-impl]
     --tier <N>       only cases with this tier
@@ -148,9 +148,25 @@ fn run_impl(args: &Args, allowed: &BTreeSet<&str>) -> Result<(Vec<String>, usize
     Ok((diff(&golden, &actual), actual.len()))
 }
 
+/// Locates the corpus, which is canonical in libsygo.
+///
+/// It lives there because it is that library's conformance spec: libsygo replays
+/// it in its own CI with no Rust toolchain and no network, which is the whole
+/// reason the port exists. The harness only reads it, so the recording side stays
+/// here — where the oracle, the pin and the drift job already are.
+///
+/// `LIBSYGO_TESTDATA` overrides the location for the case where the two
+/// repositories are not checked out side by side.
+fn libsygo_testdata() -> PathBuf {
+    std::env::var("LIBSYGO_TESTDATA")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("../libsygo/testdata"))
+}
+
 fn parse_args() -> Result<Args> {
-    let mut corpus = PathBuf::from("testdata/corpus");
-    let mut golden = PathBuf::from("testdata/golden");
+    let testdata = libsygo_testdata();
+    let mut corpus = testdata.join("corpus");
+    let mut golden = testdata.join("golden");
     let mut impl_bin = PathBuf::from(".bin/libsy-conform-impl");
     let mut mode = Mode::Verify;
     let mut tier = None;
@@ -249,7 +265,7 @@ async fn run_suites(suites: &[Suite]) -> Result<Results> {
                 Ok(case_turns) => turns.extend(case_turns),
                 Err(error) => {
                     let rejected = TurnResult::rejected(case, &error);
-                    eprintln!("{}: rejected: {}", case.case_id, format!("{error:#}"));
+                    eprintln!("{}: rejected: {error:#}", case.case_id);
                     turns.push(rejected);
                 }
             }

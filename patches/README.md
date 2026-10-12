@@ -18,7 +18,7 @@ runnable example. The core change is ~40 lines:
   `LlmTaskClassifier` delegate. The accessor is `async` because session state sits
   behind a `tokio::sync::Mutex`.
 
-Verified against the pinned revision in `testdata/corpus/PIN`:
+Verified against the pinned revision in `../libsygo/testdata/corpus/PIN`:
 
 ```sh
 cd /path/to/Switchyard

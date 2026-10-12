@@ -29,17 +29,27 @@ type Case struct {
 	Stream  *bool             `json:"stream"`
 	Decider *DeciderResponses `json:"decider_responses"`
 
+	// RawRequest is a real provider request body, decoded before routing. When set
+	// it replaces Prompt, so messages_digest and instructions become the
+	// normalizer's fingerprint rather than a synthetic request's.
+	RawRequest json.RawMessage `json:"raw_request"`
+
+	// WireFormat names RawRequest's format. Empty means openai_chat.
+	WireFormat string `json:"wire_format"`
+
 	// Multi-turn sequence sharing one router.
 	Turns []TurnSpec `json:"turns"`
 }
 
 // TurnSpec is one turn; every field is optional.
 type TurnSpec struct {
-	Headers map[string]string `json:"headers"`
-	Prompt  *string           `json:"prompt"`
-	Model   *string           `json:"model"`
-	Stream  *bool             `json:"stream"`
-	Decider *DeciderResponses `json:"decider_responses"`
+	Headers    map[string]string `json:"headers"`
+	Prompt     *string           `json:"prompt"`
+	Model      *string           `json:"model"`
+	Stream     *bool             `json:"stream"`
+	Decider    *DeciderResponses `json:"decider_responses"`
+	RawRequest json.RawMessage   `json:"raw_request"`
+	WireFormat string            `json:"wire_format"`
 }
 
 // DeciderResponses holds the scripted judge replies, consumed in call order.
@@ -61,12 +71,32 @@ func (c Case) TurnSpecs() []TurnSpec {
 		return c.Turns
 	}
 	return []TurnSpec{{
-		Headers: c.Headers,
-		Prompt:  c.Prompt,
-		Model:   c.Model,
-		Stream:  c.Stream,
-		Decider: c.Decider,
+		Headers:    c.Headers,
+		Prompt:     c.Prompt,
+		Model:      c.Model,
+		Stream:     c.Stream,
+		Decider:    c.Decider,
+		RawRequest: c.RawRequest,
+		WireFormat: c.WireFormat,
 	}}
+}
+
+// Request builds the turn's normalized request, decoding a provider body when the
+// case carries one.
+//
+// An unported wire format is an error rather than a fallback to the prompt:
+// silently routing something else would let the case pass while proving nothing
+// about the normalizer it exists to exercise.
+func (t TurnSpec) Request() (libsygo.LlmRequest, error) {
+	if len(t.RawRequest) == 0 {
+		return libsygo.TextRequest(t.PromptText()), nil
+	}
+	switch t.WireFormat {
+	case "", "openai_chat":
+		return libsygo.DecodeOpenAIChat(t.RawRequest)
+	default:
+		return libsygo.LlmRequest{}, fmt.Errorf("wire format %q is not ported", t.WireFormat)
+	}
 }
 
 // Fixtures are the scripted replies for a turn.

@@ -19,12 +19,14 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/dio/switchyard-capi/go/internal/harness"
 )
 
 func main() {
-	corpus := flag.String("corpus", "testdata/corpus", "corpus directory of *.jsonl suites")
+	corpus := flag.String("corpus", testdataDefault("corpus"),
+		"corpus directory of *.jsonl suites")
 	out := flag.String("out", "", "results JSONL path (default stdout)")
 	tier := flag.Int("tier", -1, "only cases with this tier")
 	caseGlob := flag.String("case", "", "only case_ids matching this glob")
@@ -97,6 +99,18 @@ func backendFromEnv() string {
 		return backend
 	}
 	return harness.BackendPort
+}
+
+// testdataDefault locates the corpus, which is canonical in libsygo: it is that
+// library's conformance spec, and it replays it there without a Rust toolchain.
+// The Rust harness always passes the path explicitly; this default is for running
+// this binary on its own.
+func testdataDefault(name string) string {
+	root := os.Getenv("LIBSYGO_TESTDATA")
+	if root == "" {
+		root = "../libsygo/testdata"
+	}
+	return filepath.Join(root, name)
 }
 
 func fail(err error) {
