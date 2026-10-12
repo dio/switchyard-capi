@@ -1,0 +1,394 @@
+# libsy Differential Harness
+
+**Status:** Spec. Scope: a conformance harness that runs a request corpus through
+both the pinned Rust `libsy` core (oracle) and a Go implementation (port or, if
+we bind, the C-ABI shim), then diffs the routing decisions field by field.
+
+**Why this exists.** The cost of owning routing in Go is not the line count —
+`libsy` production code is ~10.9k LOC. The cost is *conformance and drift*: the
+10.3k LOC of Rust tests are the spec, and the tuned constants (`MAX_ASSIGNMENTS =
+4096`, 1h `SESSION_STATE_TTL`, `ClassifyTrigger` variants, `latch_only`) encode
+benchmark tuning we do not have the data for. This harness turns "did we port it
+right, and is it still right after upstream moves?" into a mechanical check.
+
+**Chain of trust:**
+
+```
+libsy Rust unit tests           (upstream, authoritative behaviour)
+        │  record
+        ▼
+corpus + decider fixtures       (checked in, versioned with the pinned commit)
+        │  verify
+        ├──────────────► Rust oracle bin   (plain bin → libsy, no FFI) ─┐
+        └──────────────► Go runner         (port)                        ─┴─► diff
+```
+
+The oracle is a **plain Rust binary that links `libsy` directly** — no FFI, no
+shim. That keeps the first cut cheap: the corpus, the fixtures, and the diff are
+the deliverable, and they are worth having before any binding decision is made.
+The oracle's serialisation is what *defines* the result schema the Go side must
+match.
+
+If we later bind instead of port, the same bin is re-pointed at the C-ABI shim
+(§5) and a small set of ABI-fidelity cases is cross-checked against the Python
+binding (`switchyard-py`) to prove the shim adds no behaviour. Until then there
+is no shim to validate.
+
+---
+
+## 1. Determinism audit
+
+The harness is only useful if a single case is reproducible. libsy is mostly
+pure; the exceptions are enumerated here and must be controlled.
+
+| Source | Where | Control |
+|---|---|---|
+| `tool_signals.rs` | "All logic is pure and deterministic — no I/O, no shared state." | none needed |
+| `State` | `turn_count`, `tool_signals`, `extra: HashMap<String, StateValue>` | inspectable; reset per case |
+| Session table | `FallThrough` per-session `State`, keyed by `RoutingIdentity` | reset per case; no TTL expiry mid-corpus |
+| Affinity map | `AffinityRouter.assignments`, bounded `MAX_ASSIGNMENTS = 4096` | reset per case; assert never at bound |
+| RNG | `rand.rs`: `seed: Option<u64>`; `None => rand::make_rng()` | **seed is mandatory** for `random` profiles |
+| `outcome_id` | `OutcomeMetadata` UUIDv7 (time-based) | **masked** in the diff |
+| Timing | `Instant::now()` in `observability.rs`, `core/algorithm.rs`, `advisor_gate.rs`, `fall_through.rs` | metrics/duration only; **masked** in the diff |
+| Session eviction | `SESSION_STATE_TTL = 1h`, background cleanup task | keep corpus cases short-lived; never rely on eviction |
+
+Rules: **seed every stochastic profile**, **reset the session/affinity tables
+between cases** unless the case declares a session sequence (§4), and **mask
+`outcome_id` and all timings** in the comparator.
+
+---
+
+## 2. Corpus format
+
+One JSON object per line (JSONL), UTF-8, `\n` terminated. Blank lines and lines
+starting with `//` are ignored. Files live in `testdata/corpus/<suite>.jsonl`.
+The corpus is valid against exactly one upstream revision; record it in
+`testdata/corpus/PIN` (the Switchyard commit sha the oracle was built from).
+
+```jsonc
+{
+  // Stable identity. Never reuse, never renumber. Used in diff reports.
+  "case_id": "stage/under-threshold-003",
+
+  // Conformance tier: 1 = decision core, 2 = +LLM judge, 3 = +stage/tool-signals,
+  // 0 = JEV/chat protocol only. Lets CI run a subset.
+  "tier": 3,
+
+  // Profile: exactly what a tenant selects. `algorithm` + algorithm config only.
+  // No model pool here — that is per request (see `models`).
+  "profile": {
+    "algorithm": "stage_router",
+    "picker": "efficient_first",
+    "confidence_threshold": 0.5,
+    "recent_window": 3,
+    "only_on_wrong_signal_escalation": true,
+    "escalation_note": "The efficient tier failed; continue from its work.",
+    "deescalation_note": "The capable tier completed the recovery.",
+    "capable_system_prompt": "Handle this request as the capable tier.",
+    "efficient_system_prompt": "Handle this request as the efficient tier."
+    // llm_fallback omitted => fully local, zero host calls
+  },
+
+  // Per-request model pool, best-first. Categories: any|capable|efficient|judge
+  // plus deployment-defined names. Mirrors RuntimeModels.
+  "models": {
+    "capable":   ["anthropic/claude-opus-4-7"],
+    "efficient": ["anthropic/claude-haiku-4-5"],
+    "judge":     ["jev-latest"]
+  },
+  "subagent_models": null,          // optional; RuntimeModels::with_subagent
+
+  // Headers normalized by Metadata::from_headers. Session/agent identity here is
+  // what keys session state and affinity.
+  "headers": {
+    "x-switchyard-session-id": "s-1",
+    "x-switchyard-agent-id":  "agent-1"
+  },
+
+  // The routing input. `format` + `body` is the raw provider payload; the Rust
+  // side normalizes via switchyard-translation (decode_request). Alternatively
+  // supply `llm_request` (already-normalized switchyard JSON) and omit body.
+  "request": {
+    "format": "openai_chat",
+    "body": {
+      "model": "auto",
+      "messages": [
+        { "role": "user", "content": "fix the failing test" },
+        { "role": "assistant", "content": null, "tool_calls": [
+          { "id": "c1", "type": "function",
+            "function": { "name": "run_tests", "arguments": "{}" } } ] },
+        { "role": "tool", "tool_call_id": "c1", "content": "2 passed; 1 failed" }
+      ]
+    }
+  },
+
+  // Scripted decider responses. Both sides must consume these, so the case is
+  // hermetic and offline. Empty/omitted for local-only profiles — and then the
+  // step diff asserting *zero* calls is the point of the case.
+  "decider_responses": {
+    "by_index": [
+      { "kind": "decision", "response": { /* DecisionResponse JSON */ } }
+    ],
+    "by_request_hash": {
+      "sha256:1f3c...": { "kind": "decision", "response": { /* ... */ } }
+    }
+  },
+
+  // Optional per-case expectations, checked on the *oracle* result during record.
+  // Guards against a fixture that silently stops exercising the intended path.
+  "expect": {
+    "step_kinds": ["CallDecision", "Done"],
+    "evidence_source": "decision_classifier"
+  }
+}
+```
+
+### Session sequences
+
+When a case needs multi-turn behaviour (affinity latch, fall-open persistence,
+`capable_hold_turns`), use a sequence object instead of a single request:
+
+```jsonc
+{
+  "case_id": "affinity/latch-across-turns-001",
+  "tier": 1,
+  "profile": { "algorithm": "llm_classifier", "mode": "capability",
+               "judge": { "type": "decision", "cutoff": 0.4,
+                          "candidates": { "a": "quality", "b": "economy" } } },
+  "models": { "capable": ["quality"], "efficient": ["economy"], "judge": ["jev-latest"] },
+  "turns": [
+    { "headers": { "x-switchyard-session-id": "s-1" },
+      "request": { "format": "openai_chat", "body": { "messages": [{ "role": "user", "content": "hi" }] } },
+      "decider_responses": { "by_index": [{ "kind": "decision", "response": { } }] } },
+    { "headers": { "x-switchyard-session-id": "s-1" },
+      "request": { "format": "openai_chat", "body": { "messages": [{ "role": "user", "content": "again" }] } },
+      "decider_responses": { "by_index": [] } }   // must not re-judge: latch proves it
+  ],
+  // Session state is NOT reset between turns; it IS reset before turn 0.
+  "reset_session": true
+}
+```
+
+### Fixture matching
+
+Responses are matched **by step index first** (authoritative, deterministic).
+`by_request_hash` (sha256 of the canonical `DecisionRequest`/`Request` JSON) is
+also computed and recorded; a *miss* there means the cascade diverged before the
+call and is reported as `fixture_hash_miss` — a useful early divergence signal,
+not a failure on its own.
+
+A case that emits a step with no scripted response is a **hard error**: the
+implementation called out when it should not have. This is how "local profile
+must make zero calls" is enforced.
+
+---
+
+## 3. Fields to diff
+
+Two result records are emitted per case (oracle, impl), same schema:
+
+```jsonc
+{
+  "case_id": "...",
+  "turns": [
+    {
+      "steps": ["CallDecision", "Done"],        // ordered Step kinds
+      "step_count": 2,
+      "selected_model_ids": ["quality", "economy"],   // ordered, best-first
+      "selected_model_id": "quality",                 // head of the list
+      "rewritten_model": "quality",                   // request.llm_request.model after routing
+      "request_rewrite_digest": "sha256:...",         // instructions/system-prompt/notes delta
+      "evidence": { "source": "decision_classifier", "verdict": "relative_advantage",
+                    "score": 0.83, "threshold": 0.4 },
+      "algorithm": "llm_classifier",
+      "decision_source": "override",                  // State.extra["decision_source"]
+      "affinity_key": "session:s-1",                  // RoutingIdentity, resolved
+      "affinity_latched": ["s-1 -> quality"],         // effective assignment table
+      "session_state": {                              // State dump (see §5)
+        "turn_count": 1,
+        "tool_signals": { "observe": 0, "mutate": 1, "plan": 0, "new": 0 },
+        "extra": { "decision_source": "override" }
+      },
+      "outcome_id": "MASKED",
+      "durations": "MASKED"
+    }
+  ]
+}
+```
+
+| Field | Why it matters | Diff policy |
+|---|---|---|
+| `steps` / `step_count` | proves local-vs-remote: a local profile must emit no `CallModel`/`CallDecision` | exact |
+| `selected_model_ids` | the decision, **including fallback ordering** (selected → rest of its category → other targets) | exact, ordered |
+| `rewritten_model` | the model stamped into the request | exact |
+| `request_rewrite_digest` | tier system prompts and handoff notes injected by processors | exact |
+| `evidence` | `{source, verdict, score, threshold}`; fail-open emits `{source:"fail_open", reason_code}` | exact, key order ignored |
+| `algorithm` | `Algorithm::name` | exact |
+| `decision_source` | `Override` / `Dimensions` / `FallOpen` / `CapableHold` / `Ambiguous` | exact |
+| `affinity_key` | resolved `RoutingIdentity` (session, or session+agent for subagents) | exact |
+| `affinity_latched` | the retained assignment table after the turn | exact |
+| `session_state.turn_count`, `.extra` | persistence + fall-open / capable-hold counters | exact |
+| `session_state.tool_signals` | the signal scoring input | exact |
+| `outcome_id` | UUIDv7, time-based | **masked** |
+| `durations` | `Instant`-derived | **masked** |
+
+Diagnostics allowed to differ (reported, not failed): log lines, `tracing`
+spans, metric counters.
+
+---
+
+## 4. Runner architecture
+
+Two runners, one shared corpus and result schema.
+
+### Rust oracle runner
+
+A **plain bin**, e.g. `cargo run -p libsy-conform`, linking `libsy`,
+`switchyard-protocol`, and `switchyard-translation` directly — no FFI, no shim.
+Pin it to the revision in `testdata/corpus/PIN`.
+
+```sh
+libsy-conform --corpus testdata/corpus --mode oracle --out out/oracle.jsonl
+```
+
+Internally: parse case → build `Algorithm` from `profile` → build
+`RuntimeModels` from `models` → for each turn, `run_stream`, serve each step from
+`decider_responses.by_index`, collect `Step::Done` outcome and serialise `State`
+in-process.
+
+Because the oracle runs in-process, `State` and the affinity table are read with
+no ABI at all. That is the point: the oracle's JSON is the reference, and the Go
+side (§4) is written to match it — not the other way round.
+
+### Go runner
+
+Same CLI, same schema:
+
+```sh
+go run ./cmd/libsy-conform --corpus testdata/corpus --mode impl --out out/go.jsonl
+```
+
+### Modes
+
+| Mode | Action |
+|---|---|
+| `record` | oracle only; write result JSONL; refuses to overwrite fixtures unless `--force` |
+| `verify` | both runners; diff; exit non-zero on any field diff |
+| `bless` | rewrite expected results as the new golden (requires review) |
+| `subset` | filter by `--tier` and `--case` glob for fast local iteration |
+
+```sh
+# full round trip
+libsy-conform --corpus testdata/corpus --mode verify
+# diff detail
+libsy-conform ... --mode verify --report out/diff.json --verbose
+```
+
+### Comparator
+
+Line-by-line over the two result JSONLs matched by `case_id` + `turn` index.
+Reports:
+
+- `mismatch` — a diffed field differs (with JSON Pointer to the exact path).
+- `missing_case` / `extra_case` — corpus coverage drift.
+- `fixture_hash_miss` — cascade diverged before a call.
+- `unexpected_call` — a step with no scripted response (hard failure).
+- `masked_field_diff` — a masked field differed (warning only; catches accidental
+  leakage of nondeterminism into a diffed field).
+
+Exit non-zero on any `mismatch`, `unexpected_call`, `missing_case`, or
+`extra_case`.
+
+---
+
+## 5. State exposure
+
+The diff includes session `State` (§3) because much of the tuned behaviour lives
+there rather than in the visible model choice — `decision_source`, `fall_open`,
+`capable_hold`, `turn_count`, and `tool_signals`.
+
+**Oracle bin (now):** nothing to add. The bin owns the `State` and serialises it
+directly. Its JSON shape is the reference.
+
+**C-ABI shim (later, only if we bind):** neither the Python binding nor an
+in-process shim exposes `State`, so the shim must grow two read-only JSON
+accessors:
+
+```c
+// JSON snapshot of the run's session State; NULL when the run has no state.
+const char *sy_run_state_dump(const SyRun *run);
+// Resolved affinity table for the algorithm instance, as JSON.
+const char *sy_algorithm_affinity_dump(const SyAlgorithm *h);
+```
+
+Write the shim to emit the **oracle bin's** serialisation, so the two sides stay
+interchangeable. Keep them in the shipping ABI rather than behind a test feature,
+so the harness runs against the real artifact.
+
+`tool_signals` is a fixed, small struct (`observe`, `mutate`, `plan`, `new`, plus
+any scored dimensions) — serialise the whole thing so a scoring regression shows
+up as a diff rather than as a downstream tier change.
+
+---
+
+## 6. Conformance tiers
+
+Corpus cases are tagged so CI can gate progressively.
+
+| Tier | Covers | Modules on the Go side |
+|---|---|---|
+| 0 | JEV / chat wire protocol only (encode request, decode verdict, cutoff) | JEV client, `DecisionRequest`/`Response` |
+| 1 | decision core: cascade, affinity, ambiguity, fail-open, candidate ordering | `fall_through`, `affinity`, `llm_class/decision` |
+| 2 | + LLM-judge variant | `classifier_contract` (JSON-Schema verdict validation) |
+| 3 | + `stage_router`: tool signals, escalation, capable-hold | `tool_signals` (1,661 prod LOC), `util/stage` |
+
+Tier 3 is where the port is expensive and drift is most likely; it should have
+the densest corpus.
+
+---
+
+## 7. Corpus authoring guidance
+
+- **Every tier-3 case must be churn-sensitive.** Cover: under-threshold abstain →
+  `FallOpen` → default tier; `Override`; `Dimensions`; `CapableHold` decrement and
+  clear-on-pass; escalation and de-escalation notes; tier system prompts.
+- **Boundary cases for tool signals**: a turn with no tool activity
+  (`tool_signals = None`); a tool burst crossing `recent_window`; Anthropic-style
+  `Role::User` tool results (must not count as a user turn).
+- **Ambiguity and invalid verdicts**: `Classification::Ambiguous` abstains; NaN
+  confidence is an error; a missing/invalid `advantage` probability → `fail_open`
+  with `reason_code: "invalid_verdict"`; `fail_open = false` propagates.
+- **Affinity**: same session latches; new session re-judges; `session_final`
+  evicts; subagent refines the key to session+agent; `latch_only` refuses to latch
+  the weak tier.
+- **Ordering**: assert the full `selected_model_ids` for a chain/split so the
+  fallback ordering is pinned, not just the head.
+- **Local-only proof**: at least one case per local profile asserting
+  `step_count` is `["Done"]` — the regression that matters most for owning HTTP
+  in Envoy (a local profile must never reach the network).
+
+---
+
+## 8. CI and acceptance
+
+```sh
+# oracle pinned to the commit in testdata/corpus/PIN
+cargo test -p libsy                       # upstream's own suite still green
+libsy-conform --corpus testdata/corpus --mode verify
+```
+
+Acceptance for swapping in the Go implementation behind the same profile API:
+
+1. `verify` is green across all tiers, on the full corpus.
+2. Every tier-3 case emits identical `tool_signals` and `decision_source`.
+3. No `unexpected_call` for any local-only profile.
+4. No diff in `selected_model_ids` ordering.
+5. `by_request_hash` fixtures hit for every case that calls out.
+
+Drift check: re-run `record` against a newer Switchyard pin on a branch. The
+resulting diff is the exact behavioural delta upstream introduced — which is the
+number that decides whether we keep owning routing in Go or go back to binding.
+
+If `verify` is green and upstream's diff is small, cut over to Go and drop the
+Rust toolchain from CI. If upstream keeps moving the cascade, keep the binding
+and run the harness as an early-warning system.

@@ -1,0 +1,24 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  conform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Respects rust-toolchain.toml (pinned to the channel the pinned
+      # Switchyard revision requires).
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: fmt
+        run: cargo fmt --all --check
+      - name: clippy
+        run: cargo clippy --all-targets -- -D warnings
+      # Re-runs the oracle against the corpus and diffs the recorded golden.
+      # Green means the oracle is deterministic and upstream behaviour has not
+      # moved for the pinned revision.
+      - name: conform
+        run: cargo run -p libsy-conform -- --mode verify
