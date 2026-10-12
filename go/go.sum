@@ -1,8 +1,4 @@
-github.com/dio/libsygo v0.0.0-20261012100734-c1d211ad4097 h1:gUhjruL/NFRC/0ktae0ysfUXpmm5U+A+ufXnnm+j5Xk=
-github.com/dio/libsygo v0.0.0-20261012100734-c1d211ad4097/go.mod h1:i5cfKwbezfD4QNixgBdMq3IS0KCWzRroGbgaoOwTkec=
-github.com/dio/libsygo v0.0.0-20261012103328-74d697e37b84 h1:l4axGa49f07IRqlEQDZ5yfhDLrSeJLMG5HX0X8fb1qo=
-github.com/dio/libsygo v0.0.0-20261012103328-74d697e37b84/go.mod h1:i5cfKwbezfD4QNixgBdMq3IS0KCWzRroGbgaoOwTkec=
-github.com/dio/libsygo v0.0.0-20261012104804-9beed5a9d405 h1:YbiTgVOi8spNWhDlQLzu7S48TDA8oh+gJt/EiFZL/90=
-github.com/dio/libsygo v0.0.0-20261012104804-9beed5a9d405/go.mod h1:i5cfKwbezfD4QNixgBdMq3IS0KCWzRroGbgaoOwTkec=
-github.com/dio/libsygo v0.0.0-20261012204538-4d9faefb0f39 h1:RE/ci4TbOqaA6nLlYSwZC43nQwxt9U6+pjoa0d10K58=
-github.com/dio/libsygo v0.0.0-20261012204538-4d9faefb0f39/go.mod h1:i5cfKwbezfD4QNixgBdMq3IS0KCWzRroGbgaoOwTkec=
+github.com/dio/libsygo v0.0.0-20261012210557-0cbc98956f94 h1:vgRSptEBK1Y1nF7J1BKK7p05iUs9p+U8l/UbcGJFj8s=
+github.com/dio/libsygo v0.0.0-20261012210557-0cbc98956f94/go.mod h1:i5cfKwbezfD4QNixgBdMq3IS0KCWzRroGbgaoOwTkec=
+github.com/dio/libsygo v0.0.0-20261012210755-c7c623dc3a96 h1:/yp0OU1qFVYzPIUSySDRirt2uSG+dHZhQAFu1BYdqS4=
+github.com/dio/libsygo v0.0.0-20261012210755-c7c623dc3a96/go.mod h1:i5cfKwbezfD4QNixgBdMq3IS0KCWzRroGbgaoOwTkec=
