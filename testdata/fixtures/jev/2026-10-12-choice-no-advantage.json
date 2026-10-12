@@ -1,0 +1,36 @@
+{
+  "_provenance": "Live capture from the TypeSafe System One (JEV) endpoint, recorded to pin real decider behaviour. Not a hand-authored value: re-recording may change it as the served model moves.",
+  "captured_at": "2026-10-12",
+  "request": {
+    "endpoint": "https://api.typesafe.ai/v1/systemone",
+    "model_requested": "jev-latest",
+    "shape": "the payload libsy's DecisionClassifier builds, encoded by crates/libsy-llm-client/src/system_one.rs",
+    "state": {
+      "task": [{ "role": "user", "content": "Refactor the routing table and make the failing test pass." }],
+      "candidates": ["a", "b"],
+      "comparison": { "capable": "a", "efficient": "b" },
+      "evidence": { "candidates": { "a": "Higher-quality model", "b": "Lower-cost model" } }
+    },
+    "question": {
+      "type": "choice",
+      "instructions": "crates/libsy/src/prompts/capability-classifier/relative_advantage.json",
+      "criteria": {
+        "advantage": "The capable candidate succeeds AND the efficient candidate fails.",
+        "no_advantage": "The efficient candidate succeeds OR the capable candidate fails, including shared failure."
+      }
+    }
+  },
+  "wire_response": {
+    "model": "jev-1.13.0",
+    "answers": {
+      "route": {
+        "type": "choice",
+        "choice": "no_advantage",
+        "confidence": 0.5,
+        "probabilities": { "advantage": 0.25, "no_advantage": 0.75 }
+      }
+    },
+    "usage": { "input_tokens": 834, "output_tokens": 39 }
+  },
+  "notes": "Confirms libsy's decision-judge contract is accepted by the live API, and that system_one.rs's decoder maps the wire Choice into DecisionValue::Choice. advantage 0.25 < cutoff 0.4 routes to the efficient tier."
+}

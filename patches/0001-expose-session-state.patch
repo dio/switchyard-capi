@@ -1,0 +1,205 @@
+diff --git a/crates/libsy/examples/state_snapshot.rs b/crates/libsy/examples/state_snapshot.rs
+new file mode 100644
+index 0000000..9fed3f9
+--- /dev/null
++++ b/crates/libsy/examples/state_snapshot.rs
+@@ -0,0 +1,64 @@
++//! Demonstrates the `Algorithm::state_snapshot` accessor added by this patch.
++//!
++//! Runs one local stage-router turn against a session id, then dumps the retained
++//! per-session state as JSON. Run with:
++//!
++//!     cargo run -p switchyard-libsy --example state_snapshot
++
++use std::collections::HashMap;
++use std::sync::Arc;
++
++use futures::StreamExt;
++use switchyard_libsy::{Algorithm, PickerMode, RuntimeModels, StageRouter, StageRouterConfig, Step};
++use switchyard_protocol::{text_request, Category, Metadata, ModelId, Request};
++
++#[tokio::main]
++async fn main() {
++    let algorithm = Arc::new(
++        StageRouter::new(StageRouterConfig::new(PickerMode::EfficientFirst, 0.5))
++            .expect("stage router"),
++    );
++
++    let models = Arc::new(RuntimeModels::new(HashMap::from([
++        (Category::Capable, vec![ModelId::from("m/capable")]),
++        (Category::Efficient, vec![ModelId::from("m/efficient")]),
++        (
++            Category::Any,
++            vec![ModelId::from("m/capable"), ModelId::from("m/efficient")],
++        ),
++    ])));
++
++    let session = "session-1";
++    let request = Request {
++        llm_request: text_request(Some("auto".to_string()), "hello"),
++        raw_request: None,
++        metadata: Some(Metadata {
++            session_id: Some(session.to_string()),
++            ..Metadata::default()
++        }),
++    };
++
++    let mut stream = algorithm.clone().run_stream(request, models);
++    while let Some(step) = stream.next().await {
++        match step {
++            Ok(Step::Done(done)) => println!("selected: {:?}", done.selected_model_ids),
++            Ok(other) => println!("step: {}", step_kind(&other)),
++            Err(error) => println!("error: {error}"),
++        }
++    }
++    drop(stream);
++
++    match algorithm.state_snapshot(session).await {
++        Some(state) => println!("state_snapshot({session}) = {}", serde_json::to_string_pretty(&state).unwrap()),
++        None => println!("state_snapshot({session}) = <none>"),
++    }
++    println!("state_snapshot(\"absent\") = {:?}", algorithm.state_snapshot("absent").await);
++}
++
++fn step_kind(step: &Step) -> &'static str {
++    match step {
++        Step::CallModel(_) => "CallModel",
++        Step::CallDecision(_) => "CallDecision",
++        Step::Done(_) => "Done",
++    }
++}
+diff --git a/crates/libsy/src/algorithms/fall_through.rs b/crates/libsy/src/algorithms/fall_through.rs
+index 8d6f5e7..f86b03b 100644
+--- a/crates/libsy/src/algorithms/fall_through.rs
++++ b/crates/libsy/src/algorithms/fall_through.rs
+@@ -17,6 +17,8 @@
+ //! every other runtime target. The consumer may fall through that ordered candidate list when a
+ //! model call fails.
+ 
++use serde::Serialize;
++use serde_json::Value;
+ use std::{
+     collections::HashMap,
+     sync::{Arc, Once, Weak},
+@@ -281,6 +283,23 @@ fn session_id(request: &Request) -> Option<String> {
+         .map(str::to_string)
+ }
+ 
++impl<S> FallThrough<S>
++where
++    S: Serialize + Send + Sync + 'static,
++{
++    /// JSON snapshot of one session's retained state, for hosts that inspect or
++    /// persist routing decisions.
++    pub async fn session_state_json(&self, session_id: &str) -> Option<Value> {
++        let states = self.session_states.as_ref()?;
++        let state = {
++            let states = states.lock();
++            states.get(session_id).map(|session| Arc::clone(&session.state))
++        }?;
++        let state = state.lock().await;
++        serde_json::to_value(&*state).ok()
++    }
++}
++
+ #[async_trait]
+ impl<S> Algorithm for FallThrough<S>
+ where
+diff --git a/crates/libsy/src/algorithms/llm_class.rs b/crates/libsy/src/algorithms/llm_class.rs
+index e45d73f..3ee226e 100644
+--- a/crates/libsy/src/algorithms/llm_class.rs
++++ b/crates/libsy/src/algorithms/llm_class.rs
+@@ -834,6 +834,10 @@ impl Algorithm for LlmTaskClassifier {
+     ) -> Result<crate::RoutingOutcome> {
+         self.route.execute(driver, request).await
+     }
++
++    async fn state_snapshot(&self, session_id: &str) -> Option<serde_json::Value> {
++        self.route.session_state_json(session_id).await
++    }
+ }
+ 
+ #[cfg(test)]
+diff --git a/crates/libsy/src/algorithms/stage.rs b/crates/libsy/src/algorithms/stage.rs
+index cc565f6..cf8e718 100644
+--- a/crates/libsy/src/algorithms/stage.rs
++++ b/crates/libsy/src/algorithms/stage.rs
+@@ -205,6 +205,10 @@ impl Algorithm for StageRouter {
+     ) -> Result<crate::RoutingOutcome> {
+         self.route.execute(driver, request).await
+     }
++
++    async fn state_snapshot(&self, session_id: &str) -> Option<serde_json::Value> {
++        self.route.session_state_json(session_id).await
++    }
+ }
+ 
+ /// Wires the cascade the wrapper drives. Exposed so a composition above can
+diff --git a/crates/libsy/src/algorithms/util/tool_signals.rs b/crates/libsy/src/algorithms/util/tool_signals.rs
+index 21d2909..13932bf 100644
+--- a/crates/libsy/src/algorithms/util/tool_signals.rs
++++ b/crates/libsy/src/algorithms/util/tool_signals.rs
+@@ -16,7 +16,7 @@ use std::collections::HashSet;
+ use std::path::Path;
+ 
+ use async_trait::async_trait;
+-use serde::Deserialize;
++use serde::{Deserialize, Serialize};
+ use serde_json::Value;
+ use switchyard_protocol::codex_namespaces::{split_qualified_name, tool_namespaces};
+ use switchyard_protocol::{ContentBlock, Request, Role, WireFormat};
+@@ -344,7 +344,7 @@ fn tool_semantics_error(message: String) -> LibsyError {
+ /// [`crate::StageRouter`] and its classifier to consume. The advisor gate's
+ /// request-side guards read the conversation-shape counts directly via
+ /// [`ToolSignals::from_request`].
+-#[derive(Clone, Debug, Default)]
++#[derive(Clone, Debug, Default, Serialize)]
+ pub struct ToolSignals {
+     /// Max severity across the recent window (last `recent_window` tool results):
+     /// `0.0` clean · `0.3` soft (exit_nonzero) · `0.7` hard · `1.0` critical.
+diff --git a/crates/libsy/src/core/algorithm.rs b/crates/libsy/src/core/algorithm.rs
+index 133f8fb..413b8a7 100644
+--- a/crates/libsy/src/core/algorithm.rs
++++ b/crates/libsy/src/core/algorithm.rs
+@@ -673,6 +673,13 @@ pub trait Algorithm: Send + Sync + 'static {
+     /// [`run_stream`](Self::run_stream) runs this method and exposes its work to the host.
+     async fn route(self: Arc<Self>, driver: Driver, request: Request) -> Result<RoutingOutcome>;
+ 
++    /// Optional JSON snapshot of the retained per-session routing state, for hosts
++    /// that inspect or persist routing decisions. `session_id` is the session to
++    /// snapshot. Algorithms that retain no state return `None`.
++    async fn state_snapshot(&self, _session_id: &str) -> Option<Value> {
++        None
++    }
++
+     /// Expose work requests and the final outcome so the host can control execution.
+     ///
+     /// Each call waits for its host reply. A run ends with one terminal item — [`Step::Done`] on
+diff --git a/crates/libsy/src/core/state.rs b/crates/libsy/src/core/state.rs
+index 01ccb08..ebf3018 100644
+--- a/crates/libsy/src/core/state.rs
++++ b/crates/libsy/src/core/state.rs
+@@ -3,12 +3,13 @@
+ 
+ //! Built-in state shared by processors and classifiers across a session.
+ 
++use serde::Serialize;
+ use std::collections::HashMap;
+ 
+ use crate::algorithms::util::tool_signals::ToolSignals;
+ 
+ /// A value in a session's [`State`].
+-#[derive(Debug, Clone)]
++#[derive(Debug, Clone, Serialize)]
+ pub enum StateValue {
+     /// Text value.
+     String(String),
+@@ -21,7 +22,7 @@ pub enum StateValue {
+ }
+ 
+ /// Routing facts accumulated across one session's algorithm runs.
+-#[derive(Debug, Clone, Default)]
++#[derive(Debug, Clone, Default, Serialize)]
+ pub struct State {
+     /// Number of turns processed for this session.
+     pub turn_count: u32,

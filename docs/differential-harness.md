@@ -307,27 +307,62 @@ The diff includes session `State` (§3) because much of the tuned behaviour live
 there rather than in the visible model choice — `decision_source`, `fall_open`,
 `capable_hold`, `turn_count`, and `tool_signals`.
 
-**Oracle bin (now):** nothing to add. The bin owns the `State` and serialises it
-directly. Its JSON shape is the reference.
+**This is an upstream API gap, not a shim task.** `State` is unreachable from
+outside libsy today:
 
-**C-ABI shim (later, only if we bind):** neither the Python binding nor an
-in-process shim exposes `State`, so the shim must grow two read-only JSON
-accessors:
+- `FallThrough` is not exported from the crate root, and its `session_states`
+  field is private with no accessor.
+- `ToolSignalProcessor` is likewise unexported.
+- `State` / `StateValue` are not `Serialize`.
+- `RoutingOutcome` carries no state, and `Algorithm` has no state hook.
 
-```c
-// JSON snapshot of the run's session State; NULL when the run has no state.
-const char *sy_run_state_dump(const SyRun *run);
-// Resolved affinity table for the algorithm instance, as JSON.
-const char *sy_algorithm_affinity_dump(const SyAlgorithm *h);
-```
+So neither the oracle bin nor a future C-ABI shim can reach it — a shim has
+nothing to call. Three ways forward:
 
-Write the shim to emit the **oracle bin's** serialisation, so the two sides stay
-interchangeable. Keep them in the shipping ABI rather than behind a test feature,
-so the harness runs against the real artifact.
+**A. Upstream accessor (preferred).** Measured at ~40 lines of core change plus a
+runnable example: 103 insertions / 4 deletions across 7 files. See
+`patches/0001-expose-session-state.patch`, which is verified to apply and build.
 
-`tool_signals` is a fixed, small struct (`observe`, `mutate`, `plan`, `new`, plus
-any scored dimensions) — serialise the whole thing so a scoring regression shows
-up as a diff rather than as a downstream tier change.
+- `State` / `StateValue` / `ToolSignals` gain `Serialize`.
+- `Algorithm` gains a defaulted method (non-breaking for other implementors):
+  `async fn state_snapshot(&self, session_id: &str) -> Option<Value>`.
+- `FallThrough<S>` gains an inherent `session_state_json(&self, session_id)`;
+  `StageRouter` and `LlmTaskClassifier` delegate to it.
+
+The one non-obvious detail: session state sits behind a `tokio::sync::Mutex`, so
+the accessor must be `async` (or contention-fragile via `try_lock`). That also
+carries into the shim, where `sy_run_state_dump` would `block_on` it.
+
+**B. Vendor a fork.** If upstream declines, point a
+`[patch."https://github.com/NVIDIA-NeMo/Switchyard.git"]` at a fork carrying the
+same change, and rebase it on each pin bump.
+
+**C. Infer from behaviour (no upstream change).** Every state field has an
+observable consequence, so a corpus can be built to make each one load-bearing:
+`fall_open` is already visible via `evidence.source`; the affinity latch via
+`unconsumed_scripted` across turns; `capable_hold_turns` and the
+`decision_source` variants via the tier transition index in a crafted sequence;
+`tool_signals` via threshold-straddling requests. This costs corpus cases rather
+than code, and localises a regression less precisely — you see "turn 4 tier
+differs", not "hold counter off by one".
+
+**Importance — proportional to how much you own.**
+
+- **JEV / chat path (tiers 0–1): minor.** Everything that matters is already
+  observable: tier, ordered candidates, `evidence` (`source` / `score` /
+  `threshold` / `reason_code`), and the rewritten request. Ship without it.
+- **`stage_router` (tier 3): significant.** `tool_signals` is the largest and
+  most churn-prone surface to reimplement (~1.7k prod LOC), and without a
+  score-level diff a scoring regression is invisible until it flips a threshold —
+  so you need many cases to localise it. If you port tier 3, take option A first:
+  it is what makes that port verifiable rather than merely plausible.
+- **If you bind rather than port: the gap does not exist.** Rust owns the state
+  and libsy's own test suite covers it. The caveat is a consequence of owning
+  routing outside Rust.
+
+`tool_signals` is a flat struct of primitives (`f32` / `u32` / `bool`), so
+serialising the whole thing is cheap and turns a scoring regression into a diff
+rather than a downstream tier change.
 
 ---
 
@@ -366,6 +401,15 @@ the densest corpus.
 - **Local-only proof**: at least one case per local profile asserting
   `step_count` is `["Done"]` — the regression that matters most for owning HTTP
   in Envoy (a local profile must never reach the network).
+- **Live captures over invented numbers, where it matters.** A judgement call has
+  no defensible synthetic value; capture it from the real decider once and pin it
+  with provenance (`testdata/fixtures/<provider>/<date>-<case>.json`). Keep the
+  synthetic cases only for boundaries a live model will not reliably produce
+  (exact-cutoff, missing-score, malformed verdict). Recorded in this repo: a real
+  JEV call returning `advantage = 0.25` against a `0.4` cutoff.
+
+  Capturing is a separate step from verifying — live calls are not deterministic,
+  so `record` may write fixtures but `verify` must always replay them.
 
 ---
 
