@@ -165,6 +165,7 @@ func toResult(caseID string, index int, outcome libsygo.Outcome, decider *turnDe
 		RewrittenModel:     strptr(outcome.Request.Model),
 		Instructions:       libsygo.InstructionsJSON(outcome.Request.Instructions),
 		MessagesDigest:     libsygo.MessagesDigest(outcome.Request.Messages),
+		ResponseFormat:     outcome.Request.Output.ResponseFormat,
 		Evidence:           outcome.Evidence,
 		Algorithm:          strptr(outcome.Algorithm),
 		ResponsePresent:    outcome.Responded,

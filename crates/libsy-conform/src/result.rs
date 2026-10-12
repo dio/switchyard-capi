@@ -30,6 +30,10 @@ pub struct TurnResult {
     pub instructions: Value,
     /// Digest of the messages after routing — captures handoff notes.
     pub messages_digest: String,
+    /// The structured-output format the request asked for, when it asked for one. A
+    /// dropped or unrecognized format records as null, which is the behaviour worth
+    /// pinning: a request that asked for a schema and did not get one should be visible.
+    pub response_format: Option<Value>,
     /// Algorithm evidence: `{source, verdict, score, threshold}` or a fail-open
     /// `{source, reason_code}`.
     pub evidence: Option<Value>,
@@ -97,6 +101,7 @@ impl TurnResult {
                 rewritten_model: None,
                 instructions: Value::Null,
                 messages_digest: String::new(),
+                response_format: None,
                 evidence: None,
                 algorithm: None,
                 response_present: false,
@@ -123,6 +128,7 @@ impl TurnResult {
             messages_digest: digest(
                 &serde_json::to_value(&llm_request.messages).unwrap_or(Value::Null),
             ),
+            response_format: llm_request.output.response_format.clone(),
             evidence: outcome.metadata.as_ref().and_then(|m| m.evidence.clone()),
             algorithm: outcome.metadata.as_ref().map(|m| m.algorithm.clone()),
             response_present: outcome.response.is_some(),

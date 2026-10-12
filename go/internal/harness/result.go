@@ -18,6 +18,7 @@ type TurnResult struct {
 	RewrittenModel     *string         `json:"rewritten_model"`
 	Instructions       json.RawMessage `json:"instructions"`
 	MessagesDigest     string          `json:"messages_digest"`
+	ResponseFormat     json.RawMessage `json:"response_format"`
 	Evidence           json.RawMessage `json:"evidence"`
 	Algorithm          *string         `json:"algorithm"`
 	ResponsePresent    bool            `json:"response_present"`
