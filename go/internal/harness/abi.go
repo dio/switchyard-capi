@@ -196,6 +196,9 @@ func toResultFromABI(
 	var rewritten struct {
 		Instructions json.RawMessage `json:"instructions"`
 		Messages     json.RawMessage `json:"messages"`
+		Output       struct {
+			ResponseFormat json.RawMessage `json:"response_format"`
+		} `json:"output"`
 	}
 	if err := json.Unmarshal(outcome.Request, &rewritten); err != nil {
 		return TurnResult{}, fmt.Errorf("decoding the rewritten request: %w", err)
@@ -241,6 +244,7 @@ func toResultFromABI(
 		RewrittenModel:     head,
 		Instructions:       instructions,
 		MessagesDigest:     digestRaw(rewritten.Messages),
+		ResponseFormat:     rewritten.Output.ResponseFormat,
 		Evidence:           metadata.Evidence,
 		Algorithm:          algorithm,
 		UnconsumedScripted: unconsumed,
