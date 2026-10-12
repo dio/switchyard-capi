@@ -40,9 +40,43 @@ pub struct TurnResult {
     /// judge call) — recorded rather than fatal, so semantics can be discovered.
     pub unconsumed_scripted: usize,
     pub error: Option<String>,
+    /// Why a rejection happened, in full. Never diffed and never serialized: the
+    /// recorded `error` is the label, this is for the operator's eyes.
+    #[serde(skip)]
+    pub detail: Option<String>,
 }
 
+/// The label recorded when a case fails before it can route: an undecodable
+/// request, or a profile libsy refuses.
+///
+/// Deliberately not the provider's message. Two implementations cannot be expected
+/// to word a rejection identically, so diffing the wording would fail every port on
+/// a difference that is not behavioural. What must match is that the input was
+/// *rejected* rather than silently coerced — which is the thing a port gets wrong.
+pub const REQUEST_REJECTED: &str = "request_rejected";
+
 impl TurnResult {
+    /// A case that could not be run at all. Recorded as one errored turn so the
+    /// rest of the suite still runs and the rejection is diffable.
+    pub fn rejected(case: &Case, error: &anyhow::Error) -> Self {
+        Self::from_run(
+            case,
+            0,
+            vec!["Error".to_string()],
+            None,
+            0,
+            Some(REQUEST_REJECTED.to_string()),
+        )
+        // The full message still reaches the operator, just not the diff.
+        .with_detail(format!("{error:#}"))
+    }
+
+    /// Attaches the undiffed detail a human needs to act on a rejection.
+    fn with_detail(mut self, detail: String) -> Self {
+        self.detail = Some(detail);
+        self
+    }
+
     pub fn from_run(
         case: &Case,
         turn: usize,
@@ -68,6 +102,7 @@ impl TurnResult {
                 response_present: false,
                 unconsumed_scripted,
                 error,
+                detail: None,
             };
         };
 
@@ -93,6 +128,7 @@ impl TurnResult {
             response_present: outcome.response.is_some(),
             unconsumed_scripted,
             error,
+            detail: None,
         }
     }
 }

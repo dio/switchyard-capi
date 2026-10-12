@@ -9,9 +9,10 @@ use futures::StreamExt;
 use http::HeaderMap;
 use switchyard_libsy::{Algorithm, LibsyError, RoutingOutcome, RuntimeModels, Step};
 use switchyard_protocol::{
-    text_request, AggLlmResponse, Category, DecisionResponse, LlmResponse, Metadata, ModelId,
-    Request, Response,
+    text_request, AggLlmResponse, Category, DecisionResponse, LlmRequest, LlmResponse, Metadata,
+    ModelId, Request, Response,
 };
+use switchyard_translation::{TranslationEngine, TranslationPolicy};
 
 use crate::corpus::{Case, Scripted, TurnSpec};
 use crate::result::TurnResult;
@@ -96,6 +97,30 @@ fn headers_map(headers: &BTreeMap<String, String>) -> Result<HeaderMap> {
     Ok(map)
 }
 
+/// Builds a turn's request: a decoded provider body when the case carries one,
+/// otherwise a synthetic single-message request from the prompt.
+///
+/// A raw case exists to exercise the normalizer, so decoding it is the point. The
+/// recorded `messages_digest` and `instructions` are then the normalizer's
+/// fingerprint, and a port that decodes differently fails the diff — which a
+/// synthetic request could never show, because there would be nothing to decode.
+fn turn_request(turn: &TurnSpec) -> Result<LlmRequest> {
+    let mut request = match &turn.raw_request {
+        Some(body) => {
+            let format = turn.wire_format.as_deref().unwrap_or("openai_chat");
+            TranslationEngine::default()
+                .decode_request(format, body, &TranslationPolicy::default())
+                .with_context(|| format!("decoding a {format} raw_request"))?
+                .request
+        }
+        None => text_request(turn.model.clone(), turn.prompt.clone().unwrap_or_default()),
+    };
+    if turn.stream == Some(true) {
+        request.stream = true;
+    }
+    Ok(request)
+}
+
 async fn run_turn(
     case: &Case,
     index: usize,
@@ -103,10 +128,7 @@ async fn run_turn(
     models: Arc<RuntimeModels>,
     turn: &TurnSpec,
 ) -> Result<TurnResult> {
-    let mut llm_request = text_request(turn.model.clone(), turn.prompt.clone().unwrap_or_default());
-    if turn.stream == Some(true) {
-        llm_request.stream = true;
-    }
+    let llm_request = turn_request(turn)?;
     let metadata = if turn.headers.is_empty() {
         None
     } else {

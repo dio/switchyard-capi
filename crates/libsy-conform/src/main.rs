@@ -239,10 +239,20 @@ async fn run_suites(suites: &[Suite]) -> Result<Results> {
     for (name, cases) in suites {
         let mut turns = Vec::new();
         for case in cases {
-            let case_turns = runner::run_case(case)
-                .await
-                .with_context(|| format!("running case {}", case.case_id))?;
-            turns.extend(case_turns);
+            // A case that fails before it can route — an undecodable request, a
+            // profile libsy refuses — is a *result*, not a harness failure. The
+            // oracle is saying what libsy does with that input, and the port must
+            // say the same. Aborting here would make such a case unauthorable, and
+            // "rejects invalid input" is exactly the behaviour a port gets wrong by
+            // silently coercing.
+            match runner::run_case(case).await {
+                Ok(case_turns) => turns.extend(case_turns),
+                Err(error) => {
+                    let rejected = TurnResult::rejected(case, &error);
+                    eprintln!("{}: rejected: {}", case.case_id, format!("{error:#}"));
+                    turns.push(rejected);
+                }
+            }
         }
         results.insert(name.clone(), turns);
     }

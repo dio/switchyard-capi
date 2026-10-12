@@ -31,6 +31,16 @@ pub struct Case {
     pub stream: Option<bool>,
     #[serde(default)]
     pub decider_responses: Option<DeciderResponses>,
+    /// A real provider request body, decoded through `switchyard-translation`
+    /// before routing. When set, it replaces `prompt`: the case exercises the
+    /// normalizer rather than a synthetic single-message request, and the
+    /// recorded `messages_digest`/`instructions` become its fingerprint.
+    #[serde(default)]
+    pub raw_request: Option<Value>,
+    /// Wire format of `raw_request`: `openai_chat` (default), `anthropic_messages`,
+    /// or `openai_responses`.
+    #[serde(default)]
+    pub wire_format: Option<String>,
 
     // Multi-turn sequence sharing one algorithm instance (session state persists).
     #[serde(default)]
@@ -49,6 +59,8 @@ impl Case {
             model: self.model.clone(),
             stream: self.stream,
             decider_responses: self.decider_responses.clone(),
+            raw_request: self.raw_request.clone(),
+            wire_format: self.wire_format.clone(),
         }]
     }
 }
@@ -66,6 +78,10 @@ pub struct TurnSpec {
     pub stream: Option<bool>,
     #[serde(default)]
     pub decider_responses: Option<DeciderResponses>,
+    #[serde(default)]
+    pub raw_request: Option<Value>,
+    #[serde(default)]
+    pub wire_format: Option<String>,
 }
 
 /// Scripted decider responses, consumed in step order.

@@ -13,6 +13,7 @@ path = "src/main.rs"
 [dependencies]
 switchyard-libsy.workspace = true
 switchyard-protocol.workspace = true
+switchyard-translation.workspace = true
 
 anyhow.workspace = true
 futures.workspace = true
