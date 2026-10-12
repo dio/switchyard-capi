@@ -167,16 +167,16 @@ func TestDeciderDrivesTheRouter(t *testing.T) {
 			"judge":     {"jev-latest"},
 			"any":       {"cheap", "smart"},
 		},
-		NewDecider(callout, "judge-cluster", "/v1/systemone", "api.typesafe.ai", 5*time.Second),
 	)
 	if err != nil {
 		t.Fatalf("decision.New: %v", err)
 	}
 
+	decider := NewDecider(callout, "judge-cluster", "/v1/systemone", "api.typesafe.ai", 5*time.Second)
 	outcome := router.Route(context.Background(), decision.Turn{
 		Prompt:  "Refactor the payment module onto the new ledger abstraction.",
 		Session: "tenant-a/s-1",
-	})
+	}, decider)
 	if outcome.Model != "smart" {
 		t.Fatalf("model = %q, want smart (advantage 0.77 > cutoff 0.4)", outcome.Model)
 	}

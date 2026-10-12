@@ -30,7 +30,7 @@ func RunCase(ctx context.Context, c Case, options Options) ([]TurnResult, error)
 	}
 
 	decider := &turnDecider{live: options.Judged, capture: capture}
-	router, err := decision.New(c.Profile, c.Models, decider)
+	router, err := decision.New(c.Profile, c.Models)
 	if err != nil {
 		return nil, fmt.Errorf("case %s: %w", c.CaseID, err)
 	}
@@ -42,7 +42,7 @@ func RunCase(ctx context.Context, c Case, options Options) ([]TurnResult, error)
 		outcome := router.Route(ctx, decision.Turn{
 			Prompt:  turn.PromptText(),
 			Session: turn.Session(),
-		})
+		}, decider)
 		results = append(results, toResult(c.CaseID, index, turn.PromptText(), outcome, decider))
 	}
 	return results, nil

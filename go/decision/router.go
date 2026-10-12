@@ -41,13 +41,16 @@ type Outcome struct {
 // Router is a built profile. It holds the per-session latch, so one Router serves
 // one tenant's profile: cache by (tenant, profile ID, revision) and namespace
 // session ids per tenant. A Router is safe for concurrent use.
+//
+// The judge [Decider] is supplied per Route call, not at construction, because it
+// is usually tied to a single request (the host's callout for that stream). The
+// Router itself is the long-lived, shared part.
 type Router struct {
 	judge           *Judge
 	instructions    json.RawMessage
 	failOpen        bool
 	sessionAffinity bool
 	models          Models
-	decider         Decider
 
 	latched map[string]latch
 }
@@ -58,7 +61,7 @@ type latch struct {
 }
 
 // New builds a router, rejecting anything outside tier 0/1 rather than guessing.
-func New(profile Profile, models Models, decider Decider) (*Router, error) {
+func New(profile Profile, models Models) (*Router, error) {
 	if profile.Algorithm != "llm_classifier" {
 		return nil, fmt.Errorf(
 			"profile algorithm %q is not implemented: only llm_classifier with a decision judge is",
@@ -69,9 +72,6 @@ func New(profile Profile, models Models, decider Decider) (*Router, error) {
 	}
 	if profile.Judge == nil || profile.Judge.Type != "decision" {
 		return nil, fmt.Errorf("judge is not implemented: only the decision (System One) judge is")
-	}
-	if decider == nil {
-		return nil, fmt.Errorf("a Decider is required: this package performs no I/O itself")
 	}
 	if err := validatePool(models); err != nil {
 		return nil, err
@@ -95,17 +95,16 @@ func New(profile Profile, models Models, decider Decider) (*Router, error) {
 		failOpen:        failOpen,
 		sessionAffinity: profile.SessionAffinity,
 		models:          models,
-		decider:         decider,
 		latched:         map[string]latch{},
 	}, nil
 }
 
-// Route decides one turn.
+// Route decides one turn, making at most one judge call through decider.
 //
-// A latched session returns without a judge call. Otherwise the host's Decider is
-// consulted; a verdict that is missing, malformed, or the result of a failed call
-// falls back per FailOpen.
-func (r *Router) Route(ctx context.Context, turn Turn) Outcome {
+// A latched session returns without a judge call. Otherwise decider is consulted;
+// a verdict that is missing, malformed, or the result of a failed call falls back
+// per FailOpen. A nil decider is treated as a failed call rather than a panic.
+func (r *Router) Route(ctx context.Context, turn Turn, decider Decider) Outcome {
 	if r.sessionAffinity && turn.Session != "" {
 		if held, ok := r.latched[turn.Session]; ok {
 			outcome := r.decide(held.model, held.category)
@@ -115,11 +114,15 @@ func (r *Router) Route(ctx context.Context, turn Turn) Outcome {
 		}
 	}
 
+	if decider == nil {
+		return r.fallback(reasonCallError, "no judge decider was supplied for this call")
+	}
+
 	request, err := r.buildJudgeRequest(turn.Prompt)
 	if err != nil {
 		return r.fallback(reasonCallError, err.Error())
 	}
-	response, err := r.decider.Call(ctx, request)
+	response, err := decider.Call(ctx, request)
 	if err != nil {
 		return r.fallback(reasonCallError, err.Error())
 	}
