@@ -31,8 +31,15 @@ impl: build-go
 # The same corpus and golden, driven through libsy's C ABI instead of the port.
 # Two backends behind one flag is what makes a divergence visible rather than
 # multiplied.
+#
+# Scoped to the suites the ABI can build. It implements llm_classifier only and is
+# deliberately not grown to match the port, so `local` — the non-judge algorithms,
+# where noop, random and the signal router live — is out of reach by construction. A
+# new algorithm lands in the port's coverage without silently expanding this one, and
+# the ABI's own error says so if a case ever slips through.
 impl-capi: build-go
-	LIBSY_CONFORM_BACKEND=capi cargo run -q -p libsy-conform -- --mode impl --tier 1
+	LIBSY_CONFORM_BACKEND=capi cargo run -q -p libsy-conform -- --mode impl --tier 1 \
+	  --case 'decision/*,affinity/*,requests/*'
 
 # The cgo package links the Rust staticlib, so the Rust build comes first.
 go-test: build-rust

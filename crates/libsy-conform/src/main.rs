@@ -29,7 +29,7 @@ OPTIONS:
     --mode <MODE>    record | verify | bless | impl       [default: verify]
     --impl <PATH>    impl runner binary                   [default: .bin/libsy-conform-impl]
     --tier <N>       only cases with this tier
-    --case <GLOB>    only case_ids matching this glob (single '*')
+    --case <GLOB>    only case_ids matching this glob (single '*'; comma-separated for several)
 
 MODES:
     record   run the oracle and write golden results
@@ -45,7 +45,7 @@ struct Args {
     mode: Mode,
     impl_bin: PathBuf,
     tier: Option<u8>,
-    case: Option<String>,
+    case: Vec<String>,
 }
 
 enum Mode {
@@ -57,7 +57,7 @@ enum Mode {
 
 fn main() -> Result<()> {
     let args = parse_args()?;
-    let suites = collect_suites(&args.corpus, args.tier, args.case.as_deref())?;
+    let suites = collect_suites(&args.corpus, args.tier, &args.case)?;
     if suites.is_empty() {
         bail!("no corpus cases found in {}", args.corpus.display());
     }
@@ -126,8 +126,9 @@ fn run_impl(args: &Args, allowed: &BTreeSet<&str>) -> Result<(Vec<String>, usize
     if let Some(tier) = args.tier {
         command.arg("--tier").arg(tier.to_string());
     }
-    if let Some(case) = &args.case {
-        command.arg("--case").arg(case);
+    if !args.case.is_empty() {
+        // The Go runner splits this the same way, so one flag carries the list.
+        command.arg("--case").arg(args.case.join(","));
     }
     let status = command
         .status()
@@ -170,7 +171,7 @@ fn parse_args() -> Result<Args> {
     let mut impl_bin = PathBuf::from(".bin/libsy-conform-impl");
     let mut mode = Mode::Verify;
     let mut tier = None;
-    let mut case = None;
+    let mut case: Vec<String> = Vec::new();
 
     let mut argv = std::env::args().skip(1);
     while let Some(arg) = argv.next() {
@@ -194,7 +195,12 @@ fn parse_args() -> Result<Args> {
                         .context("--tier must be a number")?,
                 )
             }
-            "--case" => case = Some(next(&mut argv, "--case")?),
+            "--case" => case.extend(
+                next(&mut argv, "--case")?
+                    .split(',')
+                    .filter(|glob| !glob.is_empty())
+                    .map(str::to_string),
+            ),
             "-h" | "--help" => {
                 println!("{USAGE}");
                 std::process::exit(0);
@@ -220,7 +226,7 @@ fn next(argv: &mut impl Iterator<Item = String>, flag: &str) -> Result<String> {
 type Suite = (String, Vec<corpus::Case>);
 type Results = BTreeMap<String, Vec<TurnResult>>;
 
-fn collect_suites(dir: &Path, tier: Option<u8>, case_glob: Option<&str>) -> Result<Vec<Suite>> {
+fn collect_suites(dir: &Path, tier: Option<u8>, case_globs: &[String]) -> Result<Vec<Suite>> {
     let mut suites = Vec::new();
     let mut entries: Vec<_> = std::fs::read_dir(dir)
         .with_context(|| format!("reading corpus directory {}", dir.display()))?
@@ -235,8 +241,12 @@ fn collect_suites(dir: &Path, tier: Option<u8>, case_glob: Option<&str>) -> Resu
         if let Some(tier) = tier {
             cases.retain(|case| case.tier == Some(tier));
         }
-        if let Some(glob) = case_glob {
-            cases.retain(|case| glob_match(glob, &case.case_id));
+        if !case_globs.is_empty() {
+            cases.retain(|case| {
+                case_globs
+                    .iter()
+                    .any(|glob| glob_match(glob, &case.case_id))
+            });
         }
         if cases.is_empty() {
             continue;

@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/dio/switchyard-capi/go/internal/harness"
 )
@@ -29,7 +30,7 @@ func main() {
 		"corpus directory of *.jsonl suites")
 	out := flag.String("out", "", "results JSONL path (default stdout)")
 	tier := flag.Int("tier", -1, "only cases with this tier")
-	caseGlob := flag.String("case", "", "only case_ids matching this glob")
+	caseGlob := flag.String("case", "", "only case_ids matching these globs (comma-separated)")
 	decider := flag.String("decider", "replay", "replay | live (live needs TYPESAFE_API_KEY)")
 	capture := flag.String("capture", "", "directory to record live replies into")
 	backend := flag.String("backend", backendFromEnv(),
@@ -50,7 +51,7 @@ func main() {
 		fail(fmt.Errorf("unknown --decider %q (replay|live)", *decider))
 	}
 
-	cases, err := harness.LoadDir(*corpus, *tier, *caseGlob)
+	cases, err := harness.LoadDir(*corpus, *tier, splitGlobs(*caseGlob))
 	if err != nil {
 		fail(err)
 	}
@@ -111,6 +112,17 @@ func testdataDefault(name string) string {
 		root = "../libsygo/testdata"
 	}
 	return filepath.Join(root, name)
+}
+
+// splitGlobs reads the comma-separated case filter the Rust harness passes.
+func splitGlobs(value string) []string {
+	var globs []string
+	for _, glob := range strings.Split(value, ",") {
+		if glob = strings.TrimSpace(glob); glob != "" {
+			globs = append(globs, glob)
+		}
+	}
+	return globs
 }
 
 func fail(err error) {

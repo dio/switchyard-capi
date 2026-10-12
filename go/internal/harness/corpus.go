@@ -122,7 +122,7 @@ func (t TurnSpec) PromptText() string {
 
 // LoadDir loads every *.jsonl suite in dir, applying the same tier and case-glob
 // filters the Rust harness uses.
-func LoadDir(dir string, tier int, caseGlob string) ([]Case, error) {
+func LoadDir(dir string, tier int, caseGlobs []string) ([]Case, error) {
 	entries, err := filepath.Glob(filepath.Join(dir, "*.jsonl"))
 	if err != nil {
 		return nil, err
@@ -139,7 +139,7 @@ func LoadDir(dir string, tier int, caseGlob string) ([]Case, error) {
 			if tier >= 0 && (c.Tier == nil || *c.Tier != tier) {
 				continue
 			}
-			if caseGlob != "" && !globMatch(caseGlob, c.CaseID) {
+			if !matchesAnyGlob(caseGlobs, c.CaseID) {
 				continue
 			}
 			cases = append(cases, c)
@@ -167,6 +167,20 @@ func LoadSuite(path string) ([]Case, error) {
 		cases = append(cases, c)
 	}
 	return cases, nil
+}
+
+// matchesAnyGlob reports whether a case id matches any of the filters. No globs
+// means no filtering.
+func matchesAnyGlob(globs []string, caseID string) bool {
+	if len(globs) == 0 {
+		return true
+	}
+	for _, glob := range globs {
+		if globMatch(glob, caseID) {
+			return true
+		}
+	}
+	return false
 }
 
 func globMatch(pattern, text string) bool {

@@ -68,7 +68,7 @@ func runCasePort(ctx context.Context, c Case, options Options) ([]TurnResult, er
 			Request: request,
 			Session: turn.Session(),
 		}, decider)
-		results = append(results, toResult(c.CaseID, index, request, outcome, decider))
+		results = append(results, toResult(c.CaseID, index, outcome, decider))
 	}
 	return results, nil
 }
@@ -135,12 +135,12 @@ func (d *turnDecider) Call(ctx context.Context, request jev.DecisionRequest) (je
 
 // toResult maps a routing outcome onto the oracle's result schema.
 //
-// The digest and the instructions come from the decoded request that was actually
-// routed, not from a re-encoding: the oracle digests libsy's own bytes, and Go
-// would reorder object keys on the way back.
-func toResult(
-	caseID string, index int, request libsygo.LlmRequest, outcome libsygo.Outcome, decider *turnDecider,
-) TurnResult {
+// Everything is read from the outcome's *rewritten* request, not from the one that
+// went in: routing stamps the selected model into it and a processor may splice a
+// tier prompt into the instructions, so the input is not what the model would
+// receive. The digest comes from libsygo rather than a re-encode, because the oracle
+// digests libsy's own bytes and Go would reorder object keys on the way back.
+func toResult(caseID string, index int, outcome libsygo.Outcome, decider *turnDecider) TurnResult {
 	unconsumed := decider.unconsumed()
 
 	if outcome.Error != "" {
@@ -162,11 +162,11 @@ func toResult(
 		StepCount:          len(steps),
 		SelectedModelIDs:   outcome.SelectedModelIDs,
 		SelectedModelID:    strptr(outcome.Model),
-		RewrittenModel:     strptr(outcome.Model),
-		Instructions:       libsygo.InstructionsJSON(request.Instructions),
-		MessagesDigest:     libsygo.MessagesDigest(request.Messages),
+		RewrittenModel:     strptr(outcome.Request.Model),
+		Instructions:       libsygo.InstructionsJSON(outcome.Request.Instructions),
+		MessagesDigest:     libsygo.MessagesDigest(outcome.Request.Messages),
 		Evidence:           outcome.Evidence,
-		Algorithm:          strptr(libsygo.AlgorithmName),
+		Algorithm:          strptr(outcome.Algorithm),
 		UnconsumedScripted: unconsumed,
 	}
 }
