@@ -19,11 +19,31 @@ and what did upstream change?" a mechanical check.
 
 ```
 crates/libsy-conform/     the harness (plain Rust bin → libsy, no FFI)
+go/                       the tier-0/1 port (stdlib only, zero deps)
 crates/switchyard-capi/   the C-ABI shim (later, only if we bind)
+patches/                  proposed upstream changes (see §5 of the spec)
 testdata/corpus/          cases (JSONL) + PIN
 testdata/golden/          recorded oracle results (checked in)
+testdata/fixtures/        live decider captures, with provenance
 docs/                     the harness spec
 ```
+
+## Tier-0/1 port
+
+`go/` ports the decision core that owns nothing but the judge plumbing: the
+JEV / System One decision judge, the cutoff, fail-open, the session latch, and
+candidate ordering. It is **510 LOC of stdlib Go with zero dependencies** (~220 of
+which are the port proper; the rest is corpus/result plumbing), and it is diffed
+against the oracle on every run:
+
+```sh
+make impl     # cargo run -p libsy-conform -- --mode impl --tier 1
+```
+
+Tier 3 (`stage_router` / tool signals) is deliberately **not** ported — that is
+the module where porting is most expensive, most churn-prone, and least
+verifiable, so the recommendation is to bind it. The port rejects anything
+outside tier 0/1 with a clear error rather than approximating it.
 
 ## Chain of trust
 

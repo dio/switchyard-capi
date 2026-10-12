@@ -13,12 +13,18 @@ jobs:
       # Respects rust-toolchain.toml (pinned to the channel the pinned
       # Switchyard revision requires).
       - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
       - name: fmt
-        run: cargo fmt --all --check
+        run: make fmt-check
       - name: clippy
-        run: cargo clippy --all-targets -- -D warnings
+        run: make clippy
       # Re-runs the oracle against the corpus and diffs the recorded golden.
       # Green means the oracle is deterministic and upstream behaviour has not
       # moved for the pinned revision.
-      - name: conform
-        run: cargo run -p libsy-conform -- --mode verify
+      - name: conform (oracle)
+        run: make verify
+      # Diffs the tier-0/1 Go port against the same golden.
+      - name: conform (tier 0/1 Go port)
+        run: make impl

@@ -9,7 +9,7 @@ mod profile;
 mod result;
 mod runner;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
@@ -26,9 +26,16 @@ USAGE:
 OPTIONS:
     --corpus <DIR>   corpus directory of *.jsonl suites   [default: testdata/corpus]
     --golden <DIR>   recorded results directory           [default: testdata/golden]
-    --mode <MODE>    record | verify | bless              [default: verify]
+    --mode <MODE>    record | verify | bless | impl       [default: verify]
+    --impl <PATH>    impl runner binary                   [default: .bin/libsy-conform-impl]
     --tier <N>       only cases with this tier
     --case <GLOB>    only case_ids matching this glob (single '*')
+
+MODES:
+    record   run the oracle and write golden results
+    verify   run the oracle and diff against golden (determinism + drift gate)
+    bless    alias for record
+    impl     run an independent implementation and diff it against golden
 
 Exit code is non-zero on any diff, missing/extra case, or error.";
 
@@ -36,6 +43,7 @@ struct Args {
     corpus: PathBuf,
     golden: PathBuf,
     mode: Mode,
+    impl_bin: PathBuf,
     tier: Option<u8>,
     case: Option<String>,
 }
@@ -44,6 +52,7 @@ enum Mode {
     Record,
     Verify,
     Bless,
+    Impl,
 }
 
 fn main() -> Result<()> {
@@ -81,12 +90,68 @@ fn main() -> Result<()> {
                 bail!("{} difference(s) against golden", problems.len())
             }
         }
+        Mode::Impl => {
+            // Diff like-for-like: the impl honours --tier/--case, so the golden
+            // must be narrowed to the same case selection.
+            let allowed: BTreeSet<&str> = suites
+                .iter()
+                .flat_map(|(_, cases)| cases.iter().map(|case| case.case_id.as_str()))
+                .collect();
+            let (problems, count) = run_impl(&args, &allowed)?;
+            if problems.is_empty() {
+                println!("ok: impl matches golden across {count} turns");
+                Ok(())
+            } else {
+                for problem in &problems {
+                    eprintln!("diff: {problem}");
+                }
+                bail!("{} difference(s) between impl and golden", problems.len())
+            }
+        }
     }
+}
+
+/// Runs the independent implementation over the corpus and diffs its results
+/// against the recorded golden.
+fn run_impl(args: &Args, allowed: &BTreeSet<&str>) -> Result<(Vec<String>, usize)> {
+    let tmp = std::env::temp_dir().join(format!("libsy-conform-impl-{}.jsonl", std::process::id()));
+    let _ = std::fs::remove_file(&tmp);
+
+    let mut command = std::process::Command::new(&args.impl_bin);
+    command
+        .arg("--corpus")
+        .arg(&args.corpus)
+        .arg("--out")
+        .arg(&tmp);
+    if let Some(tier) = args.tier {
+        command.arg("--tier").arg(tier.to_string());
+    }
+    if let Some(case) = &args.case {
+        command.arg("--case").arg(case);
+    }
+    let status = command
+        .status()
+        .with_context(|| format!("running impl binary {}", args.impl_bin.display()))?;
+    if !status.success() {
+        bail!(
+            "impl binary {} exited with {status}",
+            args.impl_bin.display()
+        );
+    }
+
+    let actual = read_results_file(&tmp)?;
+    let _ = std::fs::remove_file(&tmp);
+    let golden: Vec<TurnResult> = read_golden(&args.golden)?
+        .into_iter()
+        .filter(|turn| allowed.contains(turn.case_id.as_str()))
+        .collect();
+    Ok((diff(&golden, &actual), actual.len()))
 }
 
 fn parse_args() -> Result<Args> {
     let mut corpus = PathBuf::from("testdata/corpus");
     let mut golden = PathBuf::from("testdata/golden");
+    let mut impl_bin = PathBuf::from(".bin/libsy-conform-impl");
     let mut mode = Mode::Verify;
     let mut tier = None;
     let mut case = None;
@@ -96,12 +161,14 @@ fn parse_args() -> Result<Args> {
         match arg.as_str() {
             "--corpus" => corpus = PathBuf::from(next(&mut argv, "--corpus")?),
             "--golden" => golden = PathBuf::from(next(&mut argv, "--golden")?),
+            "--impl" => impl_bin = PathBuf::from(next(&mut argv, "--impl")?),
             "--mode" => {
                 mode = match next(&mut argv, "--mode")?.as_str() {
                     "record" => Mode::Record,
                     "verify" => Mode::Verify,
                     "bless" => Mode::Bless,
-                    other => bail!("unknown --mode {other:?} (record|verify|bless)"),
+                    "impl" => Mode::Impl,
+                    other => bail!("unknown --mode {other:?} (record|verify|bless|impl)"),
                 }
             }
             "--tier" => {
@@ -124,6 +191,7 @@ fn parse_args() -> Result<Args> {
         corpus,
         golden,
         mode,
+        impl_bin,
         tier,
         case,
     })
@@ -207,17 +275,23 @@ fn read_golden(dir: &Path) -> Result<Vec<TurnResult>> {
         if path.extension().is_none_or(|ext| ext != "jsonl") {
             continue;
         }
-        let text = std::fs::read_to_string(&path)
-            .with_context(|| format!("reading {}", path.display()))?;
-        for (line, raw) in text.lines().enumerate() {
-            let trimmed = raw.trim();
-            if trimmed.is_empty() {
-                continue;
-            }
-            let turn: TurnResult = serde_json::from_str(trimmed)
-                .with_context(|| format!("{}:{}: parsing golden", path.display(), line + 1))?;
-            turns.push(turn);
+        turns.extend(read_results_file(&path)?);
+    }
+    Ok(turns)
+}
+
+fn read_results_file(path: &Path) -> Result<Vec<TurnResult>> {
+    let text =
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    let mut turns = Vec::new();
+    for (line, raw) in text.lines().enumerate() {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            continue;
         }
+        let turn: TurnResult = serde_json::from_str(trimmed)
+            .with_context(|| format!("{}:{}: parsing result", path.display(), line + 1))?;
+        turns.push(turn);
     }
     Ok(turns)
 }
