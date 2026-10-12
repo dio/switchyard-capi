@@ -13,9 +13,8 @@ use serde::Deserialize;
 use serde_json::Value;
 use switchyard_libsy::{
     Algorithm, CapabilityJudgeConfig, ClassifyTrigger, CompositeRouter, CompositeRouterConfig,
-    DecisionJudgeConfig, HandoffNoteConfig,
-    LlmClassifierConfig, LlmFallback, LlmTaskClassifier, Noop, Passthrough, PickerMode, Random,
-    StageRouter, StageRouterConfig, TaskClassifierConfig,
+    DecisionJudgeConfig, HandoffNoteConfig, LlmClassifierConfig, LlmFallback, LlmTaskClassifier,
+    Noop, Passthrough, PickerMode, Random, StageRouter, StageRouterConfig, TaskClassifierConfig,
 };
 use switchyard_protocol::ModelId;
 
@@ -88,7 +87,8 @@ pub struct StageSpec {
 
 impl StageSpec {
     fn config(&self) -> Result<StageRouterConfig> {
-        let mut config = StageRouterConfig::new(parse_picker(&self.picker)?, self.confidence_threshold);
+        let mut config =
+            StageRouterConfig::new(parse_picker(&self.picker)?, self.confidence_threshold);
         config.recent_window = self.recent_window;
         if let Some(hold) = self.capable_hold_turns {
             config.capable_hold_turns = hold;
@@ -208,7 +208,10 @@ pub fn build(profile: &Profile) -> Result<Arc<dyn Algorithm>> {
         Profile::Random { weights, seed } => Ok(Arc::new(
             Random::new(weights.clone(), *seed).context("building random profile")?,
         )),
-        Profile::StageRouter { stage, llm_fallback } => {
+        Profile::StageRouter {
+            stage,
+            llm_fallback,
+        } => {
             let mut config = stage.config()?;
             config.llm_fallback = llm_fallback.as_ref().map(|judge| LlmFallback {
                 config: task_config(judge, true, false, false, stage.recent_window),
