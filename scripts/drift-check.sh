@@ -85,7 +85,7 @@ path.write_text(text.replace(pinned, latest))
 PY
 say "Cargo.toml re-pinned."
 
-if ! cargo update -p switchyard-libsy -p switchyard-protocol >/dev/null 2>&1; then
+if ! cargo update -p switchyard-libsy -p switchyard-protocol -p switchyard-translation >/dev/null 2>&1; then
   say ""
   say "cargo could not resolve the newer revision — upstream may have changed shape."
   exit 1
