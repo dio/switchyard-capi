@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, bail, Context, Result};
 use futures::StreamExt;
+use serde_json::Value;
 use http::HeaderMap;
 use switchyard_libsy::{Algorithm, LibsyError, RoutingOutcome, RuntimeModels, Step};
 use switchyard_protocol::{
@@ -145,6 +146,8 @@ async fn run_turn(
     let stream = algorithm.run_stream(request, models);
     tokio::pin!(stream);
 
+    // What the judge was shown, from the first decision call of the turn.
+    let mut judge_task: Option<Value> = None;
     let mut steps: Vec<String> = Vec::new();
     let mut call_index = 0usize;
     let mut outcome: Option<RoutingOutcome> = None;
@@ -194,6 +197,9 @@ async fn run_turn(
                 }
                 Step::CallDecision(call) => {
                     steps.push("CallDecision".to_string());
+                    if judge_task.is_none() {
+                        judge_task = call.request.context.get("task").cloned();
+                    }
                     let scripted = scripted.get(call_index).ok_or_else(|| {
                         anyhow!(
                             "unexpected CallDecision at index {call_index}; add a decider_responses.by_index entry"
@@ -227,12 +233,7 @@ async fn run_turn(
     // than the case anticipated. Recorded, not fatal.
     let unconsumed = scripted.len().saturating_sub(call_index);
 
-    Ok(TurnResult::from_run(
-        case,
-        index,
-        steps,
-        outcome.as_ref(),
-        unconsumed,
-        error,
-    ))
+    let mut result = TurnResult::from_run(case, index, steps, outcome.as_ref(), unconsumed, error);
+    result.judge_task = judge_task;
+    Ok(result)
 }

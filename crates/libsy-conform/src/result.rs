@@ -34,6 +34,14 @@ pub struct TurnResult {
     /// dropped or unrecognized format records as null, which is the behaviour worth
     /// pinning: a request that asked for a schema and did not get one should be visible.
     pub response_format: Option<Value>,
+    /// The messages the judge was actually shown, from the first decision call of the
+    /// turn. Null when no judge was consulted, which is its own fact — a latched session
+    /// and a signal-driven turn both record it.
+    ///
+    /// Recorded because it is a *selection*, not a projection: the judge is shown the
+    /// opening task and the latest user turn rather than the transcript, and nothing else
+    /// in the result distinguishes that from the whole conversation.
+    pub judge_task: Option<Value>,
     /// Algorithm evidence: `{source, verdict, score, threshold}` or a fail-open
     /// `{source, reason_code}`.
     pub evidence: Option<Value>,
@@ -102,6 +110,7 @@ impl TurnResult {
                 instructions: Value::Null,
                 messages_digest: String::new(),
                 response_format: None,
+                judge_task: None,
                 evidence: None,
                 algorithm: None,
                 response_present: false,
@@ -129,6 +138,7 @@ impl TurnResult {
                 &serde_json::to_value(&llm_request.messages).unwrap_or(Value::Null),
             ),
             response_format: llm_request.output.response_format.clone(),
+            judge_task: None,
             evidence: outcome.metadata.as_ref().and_then(|m| m.evidence.clone()),
             algorithm: outcome.metadata.as_ref().map(|m| m.algorithm.clone()),
             response_present: outcome.response.is_some(),

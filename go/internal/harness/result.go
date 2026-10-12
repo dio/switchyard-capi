@@ -4,6 +4,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+
+	"github.com/dio/libsygo/jev"
 )
 
 // TurnResult is the oracle's result schema. Field set and null-vs-empty choices
@@ -19,6 +21,7 @@ type TurnResult struct {
 	Instructions       json.RawMessage `json:"instructions"`
 	MessagesDigest     string          `json:"messages_digest"`
 	ResponseFormat     json.RawMessage `json:"response_format"`
+	JudgeTask          json.RawMessage `json:"judge_task"`
 	Evidence           json.RawMessage `json:"evidence"`
 	Algorithm          *string         `json:"algorithm"`
 	ResponsePresent    bool            `json:"response_present"`
@@ -44,6 +47,19 @@ func ErrorResult(caseID string, turn int, steps []string, unconsumed int, messag
 		UnconsumedScripted: unconsumed,
 		Error:              &message,
 	}
+}
+
+// judgeTaskOf reads the messages a decision request showed the judge. The judge is shown
+// a *selection* — the opening task and the latest user turn — so this is the only place
+// that shows what it saw.
+func judgeTaskOf(request jev.DecisionRequest) json.RawMessage {
+	var context struct {
+		Task json.RawMessage `json:"task"`
+	}
+	if err := json.Unmarshal(request.Context, &context); err != nil {
+		return nil
+	}
+	return context.Task
 }
 
 // requestRejected is the label the oracle records when a request is refused

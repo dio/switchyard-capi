@@ -82,8 +82,11 @@ type turnDecider struct {
 	fixtures []Scripted
 	consumed int
 	calls    int
-	caseID   string
-	turn     int
+	// judgeTask is what the first judge call of the turn showed, which is the turn's
+	// selection rather than the conversation.
+	judgeTask json.RawMessage
+	caseID    string
+	turn      int
 }
 
 func (d *turnDecider) begin(caseID string, turn int, fixtures []Scripted) {
@@ -92,12 +95,16 @@ func (d *turnDecider) begin(caseID string, turn int, fixtures []Scripted) {
 	d.fixtures = fixtures
 	d.consumed = 0
 	d.calls = 0
+	d.judgeTask = nil
 }
 
 func (d *turnDecider) unconsumed() int { return len(d.fixtures) - d.consumed }
 
 func (d *turnDecider) Call(ctx context.Context, request jev.DecisionRequest) (jev.DecisionResponse, error) {
 	d.calls++
+	if d.judgeTask == nil {
+		d.judgeTask = judgeTaskOf(request)
+	}
 
 	if d.live != nil {
 		response, err := d.live.Call(ctx, request)
@@ -148,7 +155,11 @@ func toResult(caseID string, index int, outcome libsygo.Outcome, decider *turnDe
 		if outcome.Calls > 0 {
 			steps = []string{"CallDecision", "Error"}
 		}
-		return ErrorResult(caseID, index, steps, unconsumed, outcome.Error)
+		// A failed turn still showed the judge something, and the oracle records it: the
+		// error path is not a reason to lose what was asked.
+		result := ErrorResult(caseID, index, steps, unconsumed, outcome.Error)
+		result.JudgeTask = decider.judgeTask
+		return result
 	}
 
 	steps := []string{"Done"}
@@ -168,6 +179,7 @@ func toResult(caseID string, index int, outcome libsygo.Outcome, decider *turnDe
 		ResponseFormat:     outcome.Request.Output.ResponseFormat,
 		Evidence:           outcome.Evidence,
 		Algorithm:          strptr(outcome.Algorithm),
+		JudgeTask:          decider.judgeTask,
 		ResponsePresent:    outcome.Responded,
 		UnconsumedScripted: unconsumed,
 	}

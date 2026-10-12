@@ -81,6 +81,7 @@ func runTurnCAPI(
 
 	fixtures := turn.Fixtures()
 	consumed, calls := 0, 0
+	var judgeTask json.RawMessage
 
 	var outcome *capi.Outcome
 	var failure string
@@ -94,6 +95,12 @@ func runTurnCAPI(
 		switch step.Kind {
 		case capi.StepCallDecision:
 			calls++
+			if judgeTask == nil {
+				var request jev.DecisionRequest
+				if err := json.Unmarshal(step.Request, &request); err == nil {
+					judgeTask = judgeTaskOf(request)
+				}
+			}
 			reply, err := serveDecisionCAPI(ctx, step, fixtures, &consumed, options)
 			if err != nil {
 				_ = run.Fail(step.ID, err.Error())
@@ -125,7 +132,8 @@ func runTurnCAPI(
 		}
 	}
 
-	return toResultFromABI(caseID, index, turn.PromptText(), outcome, failure, calls, len(fixtures)-consumed)
+	return toResultFromABI(caseID, index, turn.PromptText(), outcome, failure, calls,
+		len(fixtures)-consumed, judgeTask)
 }
 
 // serveDecisionCAPI answers one judge call: from a live decider when configured,
@@ -178,13 +186,16 @@ func toResultFromABI(
 	failure string,
 	calls int,
 	unconsumed int,
+	judgeTask json.RawMessage,
 ) (TurnResult, error) {
 	if failure != "" {
 		steps := []string{"Error"}
 		if calls > 0 {
 			steps = []string{"CallDecision", "Error"}
 		}
-		return ErrorResult(caseID, index, steps, unconsumed, failure), nil
+		result := ErrorResult(caseID, index, steps, unconsumed, failure)
+		result.JudgeTask = judgeTask
+		return result, nil
 	}
 	if outcome == nil {
 		return TurnResult{}, fmt.Errorf("case %s turn %d: the run produced no outcome", caseID, index)
@@ -245,6 +256,7 @@ func toResultFromABI(
 		Instructions:       instructions,
 		MessagesDigest:     digestRaw(rewritten.Messages),
 		ResponseFormat:     rewritten.Output.ResponseFormat,
+		JudgeTask:          judgeTask,
 		Evidence:           metadata.Evidence,
 		Algorithm:          algorithm,
 		UnconsumedScripted: unconsumed,
