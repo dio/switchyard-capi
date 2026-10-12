@@ -25,7 +25,7 @@ patches/                  proposed upstream changes (see §5 of the spec)
 testdata/corpus/          cases (JSONL) + PIN
 testdata/golden/          recorded oracle results (checked in)
 testdata/fixtures/        live decider captures, with provenance
-docs/                     the harness spec
+docs/                     the harness spec and the profile contract
 ```
 
 ## Pin policy
