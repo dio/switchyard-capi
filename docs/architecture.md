@@ -33,14 +33,14 @@ explicit: **the library performs no I/O; the host owns egress.**
    └─────────────────────────────────┬─────────────────────────────────┘
                                      │ imports
                        ┌─────────────▼─────────────┐
-                       │   go/decision (library)   │  routing core.
+                       │   libsygo  (library)   │  routing core.
                        │   cascade · latch         │  NO I/O, no sockets,
                        │   cutoff · fail-open      │  no credentials
                        │   candidate ordering      │
                        └─────────────┬─────────────┘
                                      │ judge call, host-supplied (Decider)
                        ┌─────────────▼─────────────┐
-                       │        go/jev             │  System One IR.
+                       │        libsygo/jev       │  System One IR.
                        │   encode / decode, client │  Optional HTTP client
                        └─────────────┬─────────────┘  for hosts without one
                                      │ HTTP (the host's callout)
@@ -54,7 +54,7 @@ explicit: **the library performs no I/O; the host owns egress.**
 One rule explains the whole layout:
 
 ```
-  host (Envoy, transit, anything)      library (go/decision)
+  host (Envoy, transit, anything)      library (libsygo)
   ───────────────────────────────      ─────────────────────
   sockets, TLS, credentials            cascade, cutoff, latch
   retries, timeouts, DNS               fail-open, ordering, evidence
@@ -98,7 +98,7 @@ so it must never occupy the Envoy worker.
 | Boundary | Caller | Offline alternative |
 |---|---|---|
 | judge call | host (Envoy cluster, transit `Writer.Do`) | — |
-| judge endpoint | `go/jev` client, for hosts with no HTTP stack | — |
+| judge endpoint | `libsygo/jev` client, for hosts with no HTTP stack | — |
 | **routing core** | nobody | always local |
 | **`stage_router` (tier 3)** | **nobody** | **fully local, no network** |
 
@@ -114,7 +114,7 @@ reason `tool_signals` is documented as pure and I/O-free.
         ▼
   corpus + decider fixtures      checked in
         │  verify                  ├──▶ Rust oracle bin  (links libsy directly)
-        ▼                          └──▶ Go implementation (go/decision)
+        ▼                          └──▶ Go implementation (libsygo)
      diff: tier · ordered candidates · evidence · rewritten request
 ```
 

@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/dio/switchyard-capi/go/decision"
-	"github.com/dio/switchyard-capi/go/jev"
+	"github.com/dio/libsygo"
+	"github.com/dio/libsygo/jev"
 )
 
 // Options configures a corpus run.
@@ -17,7 +17,7 @@ type Options struct {
 
 	// Judged supplies judge calls. Nil replays each turn's scripted replies,
 	// which is the deterministic default. Pass a jev.Client to judge live.
-	Judged decision.Decider
+	Judged libsygo.Decider
 
 	// CaptureDir records every live reply, in the corpus's scripted-reply shape,
 	// so it can be pinned and replayed.
@@ -47,7 +47,7 @@ func runCasePort(ctx context.Context, c Case, options Options) ([]TurnResult, er
 	}
 
 	decider := &turnDecider{live: options.Judged, capture: capture}
-	router, err := decision.New(c.Profile, c.Models)
+	router, err := libsygo.New(c.Profile, c.Models)
 	if err != nil {
 		return nil, fmt.Errorf("case %s: %w", c.CaseID, err)
 	}
@@ -56,7 +56,7 @@ func runCasePort(ctx context.Context, c Case, options Options) ([]TurnResult, er
 	results := make([]TurnResult, 0, len(turns))
 	for index, turn := range turns {
 		decider.begin(c.CaseID, index, turn.Fixtures())
-		outcome := router.Route(ctx, decision.Turn{
+		outcome := router.Route(ctx, libsygo.Turn{
 			Prompt:  turn.PromptText(),
 			Session: turn.Session(),
 		}, decider)
@@ -69,7 +69,7 @@ func runCasePort(ctx context.Context, c Case, options Options) ([]TurnResult, er
 // calls from the scripted replies, or delegates to a live host decider, and
 // records what it consumed.
 type turnDecider struct {
-	live     decision.Decider
+	live     libsygo.Decider
 	capture  captureFunc
 	fixtures []Scripted
 	consumed int
@@ -126,7 +126,7 @@ func (d *turnDecider) Call(ctx context.Context, request jev.DecisionRequest) (je
 }
 
 // toResult maps a routing outcome onto the oracle's result schema.
-func toResult(caseID string, index int, prompt string, outcome decision.Outcome, decider *turnDecider) TurnResult {
+func toResult(caseID string, index int, prompt string, outcome libsygo.Outcome, decider *turnDecider) TurnResult {
 	unconsumed := decider.unconsumed()
 
 	if outcome.Error != "" {
@@ -152,7 +152,7 @@ func toResult(caseID string, index int, prompt string, outcome decision.Outcome,
 		Instructions:       json.RawMessage(`[]`),
 		MessagesDigest:     MessagesDigest(prompt),
 		Evidence:           outcome.Evidence,
-		Algorithm:          strptr(decision.AlgorithmName),
+		Algorithm:          strptr(libsygo.AlgorithmName),
 		UnconsumedScripted: unconsumed,
 	}
 }

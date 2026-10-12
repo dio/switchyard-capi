@@ -1,5 +1,5 @@
 // Package harness is the conformance harness's corpus plumbing: it loads cases,
-// drives the public decision.Router, and emits the result schema the Rust oracle
+// drives the public libsygo.Router, and emits the result schema the Rust oracle
 // produces. It is internal because it exists to test the library, not to be
 // consumed by it.
 package harness
@@ -12,15 +12,15 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/dio/switchyard-capi/go/decision"
+	"github.com/dio/libsygo"
 )
 
 // Case is one corpus case.
 type Case struct {
-	CaseID  string           `json:"case_id"`
-	Tier    *int             `json:"tier"`
-	Profile decision.Profile `json:"profile"`
-	Models  decision.Models  `json:"models"`
+	CaseID  string          `json:"case_id"`
+	Tier    *int            `json:"tier"`
+	Profile libsygo.Profile `json:"profile"`
+	Models  libsygo.Models  `json:"models"`
 
 	// Single-turn shorthand. Ignored when Turns is present.
 	Headers map[string]string `json:"headers"`

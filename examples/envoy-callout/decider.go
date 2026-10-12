@@ -1,4 +1,4 @@
-// Package envoycallout shows how a host serves `decision.Decider` over an Envoy
+// Package envoycallout shows how a host serves `libsygo.Decider` over an Envoy
 // HTTP callout.
 //
 // The library performs no I/O, so the judge call is the host's to make. That is
@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/dio/switchyard-capi/go/jev"
+	"github.com/dio/libsygo/jev"
 )
 
 // CalloutRequest is one callout the host must perform. The field names mirror the
@@ -51,8 +51,8 @@ type Callout interface {
 	Do(ctx context.Context, request CalloutRequest) ([]byte, error)
 }
 
-// Decider adapts a blocking Callout into the judge call that decision.Router
-// needs, so it can be passed straight to decision.New.
+// Decider adapts a blocking Callout into the judge call that libsygo.Router
+// needs, so it can be passed straight to libsygo.New.
 type Decider struct {
 	callout   Callout
 	cluster   string
@@ -75,7 +75,7 @@ func NewDecider(callout Callout, cluster, path, authority string, timeout time.D
 	}
 }
 
-// Call satisfies decision.Decider.
+// Call satisfies libsygo.Decider.
 func (d *Decider) Call(ctx context.Context, request jev.DecisionRequest) (jev.DecisionResponse, error) {
 	body, err := jev.EncodeRequest(request)
 	if err != nil {

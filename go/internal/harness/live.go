@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dio/switchyard-capi/go/jev"
+	"github.com/dio/libsygo/jev"
 )
 
 // NewLiveDecider builds a System One client from TYPESAFE_API_KEY, optionally

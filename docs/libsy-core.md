@@ -21,7 +21,7 @@ peripheral are — already — not inside it:
 | Peripheral | Where it actually lives | Do we need it? |
 |---|---|---|
 | Provider wire parsing / transforming (OpenAI ↔ Anthropic ↔ neutral) | `switchyard-translation` | **Own it.** Separate crate, pure Rust, no HTTP. |
-| HTTP, retries, fallback, streaming, the System One codec | `switchyard-llm-client` | **Owned.** Envoy does the transport; `go/jev` already owns the System One codec. |
+| HTTP, retries, fallback, streaming, the System One codec | `switchyard-llm-client` | **Owned.** Envoy does the transport; `libsygo/jev` already owns the System One codec. |
 | TOML config → routes/clients | `switchyard-runner` | Not needed; a materializer ships profiles whole. |
 | HTTP endpoints | `switchyard-server` (upstream calls it "Demo") | Not needed. |
 
@@ -104,7 +104,7 @@ built and verified so far — has neither.
 | Layer | Own it? |
 |---|---|
 | Egress, retries, timeouts, TLS | **Owned** (Envoy). |
-| System One / JEV codec | **Owned** (`go/jev`, ported and live-verified). |
+| System One / JEV codec | **Owned** (`libsygo/jev`, ported and live-verified). |
 | Normalization | **Ownable** (separate crate + shared types). |
 | Host contract (`Step`/`Drive`) | **Owned** — replaced with a synchronous `Route`. |
 | Observability | **Owned** (Go OTel; libsy's spans do not cross the ABI). |

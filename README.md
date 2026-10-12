@@ -20,8 +20,6 @@ and what did upstream change?" a mechanical check.
 ```
 crates/libsy-conform/     the harness (plain Rust bin → libsy, no FFI)
 crates/switchyard-capi/   the C ABI over libsy (pull loop; 2 kinds so far)
-go/decision/              public library: the tier-0/1 routing core (no I/O)
-go/jev/                   public: System One IR, wire codec, HTTP client
 go/capi/                  public: cgo wrapper over the Rust C ABI
 go/internal/harness/      internal: corpus, result schema, runner plumbing
 go/cmd/libsy-conform-impl the runner binary
@@ -29,30 +27,38 @@ patches/                  proposed upstream changes (see §5 of the spec)
 testdata/corpus/          cases (JSONL) + PIN
 testdata/golden/          recorded oracle results (checked in)
 testdata/fixtures/        live decider captures, with provenance
-docs/                     the harness spec, sizing, and architecture
+docs/                     the harness spec, sizing, architecture, libsy's shape
 ```
 
+> The **Go implementation of libsy lives in
+> [`github.com/dio/libsygo`](https://github.com/dio/libsygo)**, not here. This repo
+> is the harness: it pins upstream libsy, records what it does, and diffs
+> implementations against that golden. `go/internal/harness` consumes libsygo as
+> the `port` backend.
+
 > `go/capi` links the Rust staticlib, so anything that builds the whole `go`
-> module needs `cargo build` first — `make go-test` depends on it. The other
-> packages stay pure Go and build standalone.
+> module needs `cargo build` first — `make go-test` depends on it.
 
 > The tenant **profile contract** (what a profile is, who materializes it, how a
 > dataplane resolves one per request) is a dataplane concern and lives with the
 > dataplane, not here. Nothing in this repository depends on it.
 
-## Consuming this
+## Consuming the implementation
 
-`github.com/dio/switchyard-capi/go/decision` is the library; everything else is
-test infrastructure. The dependency direction is one-way: **a dataplane imports
-this, this never imports a dataplane.** Nothing here knows about tenants, keys,
-catalogs, or Envoy.
+The implementation is [`github.com/dio/libsygo`](https://github.com/dio/libsygo):
+the Go port of libsy, with its own tests, example, and CI. This repo consumes it
+as the `port` backend and diffs it against upstream; it does not own it.
+
+The dependency direction is one-way: **a dataplane imports libsygo, libsygo
+imports nothing, and this repo imports libsygo only to test it.** Nothing here
+knows about tenants, keys, catalogs, or Envoy.
 
 ```go
 import (
     "context"
 
-    "github.com/dio/switchyard-capi/go/decision"
-    "github.com/dio/switchyard-capi/go/jev"
+    "github.com/dio/libsygo"
+    "github.com/dio/libsygo/jev"
 )
 
 // The host supplies the judge call, so egress stays host-side: this type is
@@ -63,19 +69,19 @@ func (judgeCallout) Call(ctx context.Context, request jev.DecisionRequest) (jev.
     // ... issue the callout through the host's own stack
 }
 
-router, err := decision.New(profile, models, judgeCallout{})
-outcome := router.Route(ctx, decision.Turn{
+router, err := libsygo.New(profile, models)
+outcome := router.Route(ctx, libsygo.Turn{
     Prompt:  prompt,
     Session: tenantID + "/" + sessionID, // must be tenant-namespaced
-})
+}, judgeCallout{})
 // outcome.SelectedModelIDs is the fallback order, chosen model first.
 // outcome.Evidence explains the decision.
 ```
 
-`decision` performs **no I/O** — it never resolves a URL, holds a credential, or
+`libsygo` performs **no I/O** — it never resolves a URL, holds a credential, or
 opens a socket. `jev` is a convenience client for hosts that have no HTTP stack of
-their own (and for the harness); a dataplane with its own egress implements
-`decision.Decider` directly and uses `jev` only for the IR types.
+their own (and for this harness); a dataplane with its own egress implements
+`libsygo.Decider` directly and uses `jev` only for the IR types.
 
 Cache the built `Router` by `(tenant, profile ID, revision)`, and namespace
 session ids per tenant: two tenants sharing a session id would otherwise share

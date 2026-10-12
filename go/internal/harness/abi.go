@@ -6,15 +6,15 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/dio/libsygo"
+	"github.com/dio/libsygo/jev"
 	"github.com/dio/switchyard-capi/go/capi"
-	"github.com/dio/switchyard-capi/go/decision"
-	"github.com/dio/switchyard-capi/go/jev"
 )
 
 // Backends the runner can drive. Both consume the same corpus and emit the same
 // result schema, so the Rust harness diffs either against the same golden.
 const (
-	// BackendPort is the pure-Go port in go/decision.
+	// BackendPort is the pure-Go port from github.com/dio/libsygo.
 	BackendPort = "port"
 	// BackendCAPI drives libsy through the C ABI in go/capi.
 	BackendCAPI = "capi"
@@ -246,7 +246,7 @@ func toResultFromABI(
 // The corpus profile is the neutral, algorithm-agnostic shape; the ABI wants the
 // algorithm's own config. Only the decision judge is implemented, so anything
 // else is refused rather than approximated.
-func abiAlgorithm(p decision.Profile) (kind, configJSON string, err error) {
+func abiAlgorithm(p libsygo.Profile) (kind, configJSON string, err error) {
 	if p.Algorithm != "llm_classifier" {
 		return "", "", fmt.Errorf("the ABI backend implements llm_classifier only, not %q", p.Algorithm)
 	}

@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dio/switchyard-capi/go/decision"
-	"github.com/dio/switchyard-capi/go/jev"
+	"github.com/dio/libsygo"
+	"github.com/dio/libsygo/jev"
 )
 
 // judgeReply is the shape the live System One endpoint returns, captured from a
@@ -151,17 +151,17 @@ func TestDeciderSurfacesDecodeFailure(t *testing.T) {
 // The point of the seam: a host callout alone is enough to drive the real router.
 func TestDeciderDrivesTheRouter(t *testing.T) {
 	callout := &fakeCallout{reply: []byte(judgeReply)}
-	router, err := decision.New(
-		decision.Profile{
+	router, err := libsygo.New(
+		libsygo.Profile{
 			Algorithm: "llm_classifier",
 			Mode:      "capability",
-			Judge: &decision.Judge{
+			Judge: &libsygo.Judge{
 				Type:       "decision",
 				Cutoff:     0.4,
 				Candidates: map[string]string{"a": "smart", "b": "cheap"},
 			},
 		},
-		decision.Models{
+		libsygo.Models{
 			"capable":   {"smart"},
 			"efficient": {"cheap"},
 			"judge":     {"jev-latest"},
@@ -169,11 +169,11 @@ func TestDeciderDrivesTheRouter(t *testing.T) {
 		},
 	)
 	if err != nil {
-		t.Fatalf("decision.New: %v", err)
+		t.Fatalf("libsygo.New: %v", err)
 	}
 
 	decider := NewDecider(callout, "judge-cluster", "/v1/systemone", "api.typesafe.ai", 5*time.Second)
-	outcome := router.Route(context.Background(), decision.Turn{
+	outcome := router.Route(context.Background(), libsygo.Turn{
 		Prompt:  "Refactor the payment module onto the new ledger abstraction.",
 		Session: "tenant-a/s-1",
 	}, decider)
