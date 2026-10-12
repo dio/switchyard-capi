@@ -23,7 +23,8 @@ verify:
 impl: build-go
 	cargo run -q -p libsy-conform -- --mode impl --tier 1
 
-go-test:
+# The cgo package links the Rust staticlib, so the Rust build comes first.
+go-test: build-rust
 	cd go && go test ./...
 
 # The Rust crates' own tests: the harness's, and the C ABI's pull-loop tests.

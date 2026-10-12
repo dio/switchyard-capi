@@ -19,17 +19,22 @@ and what did upstream change?" a mechanical check.
 
 ```
 crates/libsy-conform/     the harness (plain Rust bin → libsy, no FFI)
+crates/switchyard-capi/   the C ABI over libsy (pull loop; 2 kinds so far)
 go/decision/              public library: the tier-0/1 routing core (no I/O)
 go/jev/                   public: System One IR, wire codec, HTTP client
+go/capi/                  public: cgo wrapper over the Rust C ABI
 go/internal/harness/      internal: corpus, result schema, runner plumbing
 go/cmd/libsy-conform-impl the runner binary
-crates/switchyard-capi/   the C-ABI shim (later, only if we bind)
 patches/                  proposed upstream changes (see §5 of the spec)
 testdata/corpus/          cases (JSONL) + PIN
 testdata/golden/          recorded oracle results (checked in)
 testdata/fixtures/        live decider captures, with provenance
-docs/                     the harness spec
+docs/                     the harness spec, sizing, and architecture
 ```
+
+> `go/capi` links the Rust staticlib, so anything that builds the whole `go`
+> module needs `cargo build` first — `make go-test` depends on it. The other
+> packages stay pure Go and build standalone.
 
 > The tenant **profile contract** (what a profile is, who materializes it, how a
 > dataplane resolves one per request) is a dataplane concern and lives with the
