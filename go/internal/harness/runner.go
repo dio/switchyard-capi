@@ -65,8 +65,9 @@ func runCasePort(ctx context.Context, c Case, options Options) ([]TurnResult, er
 		}
 		decider.begin(c.CaseID, index, turn.Fixtures())
 		outcome := router.Route(ctx, libsygo.Turn{
-			Request: request,
-			Session: turn.Session(),
+			Request:  request,
+			Session:  turn.Session(),
+			Metadata: libsygo.MetadataFromHeaders(turn.Headers),
 		}, decider)
 		results = append(results, toResult(c.CaseID, index, outcome, decider))
 	}
