@@ -14,3 +14,5 @@ github.com/dio/libsygo v0.0.0-20261012234329-d15760ccbfda h1:wFoF2XBD8EKCRG0wTLb
 github.com/dio/libsygo v0.0.0-20261012234329-d15760ccbfda/go.mod h1:i5cfKwbezfD4QNixgBdMq3IS0KCWzRroGbgaoOwTkec=
 github.com/dio/libsygo v0.0.0-20261012235446-632bd1753627 h1:ps0TMZNv/Nk+C5oki4EyMbplU1MOtR6IY0UDhnS4KRY=
 github.com/dio/libsygo v0.0.0-20261012235446-632bd1753627/go.mod h1:i5cfKwbezfD4QNixgBdMq3IS0KCWzRroGbgaoOwTkec=
+github.com/dio/libsygo v0.0.0-20261013000338-9202d62249d2 h1:RCnA3Io0olGtlGl0wuhlGoUCNvt3/EKy32JRWTRHf5o=
+github.com/dio/libsygo v0.0.0-20261013000338-9202d62249d2/go.mod h1:i5cfKwbezfD4QNixgBdMq3IS0KCWzRroGbgaoOwTkec=
